@@ -475,7 +475,6 @@ fn insert_forced_constraints(board: &mut Board) -> SolveStatusProgress {
 }
 
 fn main() -> Result<(), BoardNotSolvableError> {
-    println!("{}", std::mem::size_of::<NewCell>());
     // let mut really_hard_test = parse_board(vec![
     //     vec!['.', '.', '.', '.', '7', '.', '1', '.', '.'],
     //     vec!['.', '.', '.', '5', '6', '.', '.', '.', '.'],

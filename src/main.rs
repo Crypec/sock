@@ -4,8 +4,9 @@
 // #![warn(clippy::restriction)]
 
 use cli_table::{Style, Table};
-use std::collections::HashMap;
+use rustc_hash::{FxHashMap, FxHasher};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 const MIDDLE_OF_SQUARE_INDEXES: [(i8, i8); 9] =
     [(1, 1), (1, 4), (1, 7), (4, 1), (4, 4), (4, 7), (7, 1), (7, 4), (7, 7)];
@@ -139,7 +140,7 @@ fn insert_initial_constraints(board: &mut Board) {
 fn partially_propagate_constraints(board: &mut Board) {
     fn partially_propagate_row_constraints(board: &mut Board) {
         for row_index in 0..9 {
-            let mut found_nums = vec![];
+            let mut found_nums = Vec::with_capacity(9);
             for col_index in 0..9 {
                 let cell = &board[row_index][col_index];
                 if let Cell::Number(n) = cell {
@@ -160,7 +161,7 @@ fn partially_propagate_constraints(board: &mut Board) {
     }
     fn partially_propagate_col_constraints(board: &mut Board) {
         for col_index in 0..9 {
-            let mut found_nums = vec![];
+            let mut found_nums = Vec::with_capacity(9);
             for row_index in 0..9 {
                 if let Cell::Number(n) = board[row_index][col_index] {
                     found_nums.push(n);
@@ -180,7 +181,7 @@ fn partially_propagate_constraints(board: &mut Board) {
     }
     fn partially_propagate_square_constraints(board: &mut Board) {
         for (square_row_index, square_col_index) in MIDDLE_OF_SQUARE_INDEXES {
-            let mut found_nums = vec![];
+            let mut found_nums = Vec::with_capacity(9);
             for (offset_y, offset_x) in OFFSETS {
                 let row_index = (square_row_index + offset_y) as usize;
                 let col_index = (square_col_index + offset_x) as usize;
@@ -230,14 +231,21 @@ fn solve_board(board: &mut Board) -> SolveStatusProgress {
             SolveStatusProgress::NotSolvable
         }
 
-        insert_initial_constraints(board);
+        if is_first_iteration {
+            insert_initial_constraints(board);
+        }
         while !board_is_solved(&board) {
             partially_propagate_constraints(board);
             let status = insert_forced_constraints(board);
-            if let SolveStatusProgress::Stalling = status {
-                return solve_board_dfs(board);
-            }
-            let time_out = std::time::Duration::from_secs(5);
+            match status {
+                SolveStatusProgress::Stalling => return solve_board_dfs(board),
+                SolveStatusProgress::NotSolvable => return SolveStatusProgress::NotSolvable,
+                SolveStatusProgress::Solved => return SolveStatusProgress::Solved,
+                SolveStatusProgress::MadeProgress => {}
+            };
+            // let time_out = std::time::Duration::from_secs(1);
+            // std::thread::sleep(time_out);
+            // print_board(&board);
         }
         SolveStatusProgress::Solved
     }
@@ -337,7 +345,7 @@ fn insert_forced_constraints(board: &mut Board) -> SolveStatusProgress {
     fn insert_forced_constraints_in_col(board: &mut Board) {
         for col_index in 0..9 {
             // occurences number of occurence and indexes
-            let mut occurrences: HashMap<u8, Vec<(usize, usize)>> = HashMap::new();
+            let mut occurrences: FxHashMap<u8, Vec<(usize, usize)>> = FxHashMap::default();
             for row_index in 0..9 {
                 let cell = &board[row_index][col_index];
                 match cell {
@@ -372,7 +380,7 @@ fn insert_forced_constraints(board: &mut Board) -> SolveStatusProgress {
     fn insert_forced_constraints_in_row(board: &mut Board) {
         for col_index in 0..9 {
             // occurences number of occurence and indexes
-            let mut occurrences: HashMap<u8, Vec<(usize, usize)>> = HashMap::new();
+            let mut occurrences: FxHashMap<u8, Vec<(usize, usize)>> = FxHashMap::default();
             for row_index in 0..9 {
                 let cell = &board[row_index][col_index];
                 match cell {
@@ -406,7 +414,7 @@ fn insert_forced_constraints(board: &mut Board) -> SolveStatusProgress {
 
     fn insert_forced_constraints_in_squares(board: &mut Board) {
         for (square_row_index, square_col_index) in MIDDLE_OF_SQUARE_INDEXES {
-            let mut occurrences = HashMap::new();
+            let mut occurrences = FxHashMap::default();
             for (offset_y, offset_x) in OFFSETS {
                 let row_index = (square_row_index + offset_y) as usize;
                 let col_index = (square_col_index + offset_x) as usize;
@@ -441,7 +449,12 @@ fn insert_forced_constraints(board: &mut Board) -> SolveStatusProgress {
         }
     }
 
-    let old_board = board.clone();
+    let old_board_hash = {
+        let mut hasher = FxHasher::default();
+        Hash::hash(board, &mut hasher);
+        hasher.finish()
+    };
+
     if let SolveStatusProgress::NotSolvable = insert_obviously_forced_constraints(board) {
         return SolveStatusProgress::NotSolvable;
     }
@@ -449,7 +462,13 @@ fn insert_forced_constraints(board: &mut Board) -> SolveStatusProgress {
     insert_forced_constraints_in_col(board);
     insert_forced_constraints_in_squares(board);
 
-    if old_board == *board {
+    let new_board_hash = {
+        let mut hasher = FxHasher::default();
+        Hash::hash(board, &mut hasher);
+        hasher.finish()
+    };
+
+    if old_board_hash == new_board_hash {
         return SolveStatusProgress::Stalling;
     }
     SolveStatusProgress::MadeProgress

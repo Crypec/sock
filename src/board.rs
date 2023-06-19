@@ -11,7 +11,7 @@ pub struct Board(pub [[Cell; 9]; 9]);
 const MIDDLE_OF_SQUARE_INDEXES: [(i8, i8); 9] =
     [(1, 1), (1, 4), (1, 7), (4, 1), (4, 4), (4, 7), (7, 1), (7, 4), (7, 7)];
 
-const OFFSETS: [(i8, i8); 9] = [
+const MIDDLE_OF_SQUARE_OFFSETS: [(i8, i8); 9] = [
     (-1, -1),
     (-1, 0),
     (-1, 1),

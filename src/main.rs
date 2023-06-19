@@ -1,6 +1,8 @@
 #![feature(let_chains)]
 #![warn(clippy::nursery)]
 #![warn(clippy::pedantic)]
+#![feature(associated_type_bounds)]
+
 // #![warn(clippy::restriction)]
 
 use crate::board::*;
@@ -20,7 +22,7 @@ fn parse_board_from_line(line: &str) -> Board {
         for col_index in 0..9 {
             let char_cell = (line.as_bytes()[(row_index * 9) + col_index]) as char;
             let cell = match char_cell {
-                '1'..='9' => Cell::Number(char_cell.to_digit(10).unwrap() as u8),
+                '1'..='9' => Cell::Number(parse_char_to_sudoku_num(char_cell)),
                 '.' | '0' => Cell::Free,
                 _ => panic!("invalid char"),
             };
@@ -29,41 +31,6 @@ fn parse_board_from_line(line: &str) -> Board {
     }
     board::Board(new_board)
 }
-
-const MIDDLE_OF_SQUARE_INDEXES: [(i8, i8); 9] =
-    [(1, 1), (1, 4), (1, 7), (4, 1), (4, 4), (4, 7), (7, 1), (7, 4), (7, 7)];
-
-const OFFSETS: [(i8, i8); 9] = [
-    (-1, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, -1),
-    (0, 0),
-    (0, 1),
-    (1, -1),
-    (1, 0),
-    (1, 1),
-];
-
-// #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-// enum SudokuNum {
-//     One = 1,
-//     Two = 2,
-//     Three = 3,
-//     Four = 4,
-//     Five = 5,
-//     Six = 6,
-//     Seven = 7,
-//     Eight = 8,
-//     Nine = 9,
-// }
-
-// #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-// enum NewCell {
-//     Number(SudokuNum),
-//     Constrained([Option<SudokuNum>; 9]),
-//     Free,
-// }
 
 fn main() -> Result<(), BoardNotSolvableError> {
     // let mut really_hard_test = parse_board(vec![
@@ -132,9 +99,13 @@ fn main() -> Result<(), BoardNotSolvableError> {
     let now = std::time::Instant::now();
     for (index, board) in boards.into_iter().enumerate() {
         let now = std::time::Instant::now();
-        let mut solver = Solver::new(board);
+        let mut solver = Solver::new(board.clone());
         let status = solver.solve();
-        println!("solved board {index} :: in {:?}", now.elapsed());
+        println!("status :: {status:?} :: {index} :: in {:?}", now.elapsed());
+        print_board(&solver.board);
+        if status != SolveStatusProgress::Solved {
+            panic!("solver is wrong");
+        }
     }
 
     println!("took :: {:?}", now.elapsed());

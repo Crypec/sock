@@ -1,5 +1,4 @@
-use rustc_hash::{FxHashMap, FxHasher};
-use std::hash::{Hash, Hasher};
+use rustc_hash::FxHashMap;
 
 use crate::board::*;
 
@@ -21,7 +20,7 @@ const OFFSETS: [(i8, i8); 9] = [
 #[derive(Debug, Copy, Clone)]
 pub struct BoardNotSolvableError;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SolveStatusProgress {
     Solved,
     MadeProgress,
@@ -30,12 +29,8 @@ pub enum SolveStatusProgress {
 }
 
 pub struct Solver {
-    board: Board,
+    pub board: Board,
     queue: Vec<(u8, u8)>,
-
-    row_missing: [Vec<u8>; 9],
-    col_missing: [Vec<u8>; 9],
-    square_missing: [Vec<u8>; 9],
 }
 
 impl Solver {
@@ -46,22 +41,25 @@ impl Solver {
         }
     }
 
-    fn insert_and_forward_propagate(&mut self, cell: u8, row_index: u8, col_index: u8) {
-        self.insert_and_forward_propagate(cell, row_index, col_index);
-        while let Some((row_index, col_index)) = self.queue.pop() {
-            self.forward_check_simple(row_index, col_index);
+    fn insert_and_forward_propagate(&mut self, number: SudokuNum, row_index: u8, col_index: u8) {
+        let row_index = row_index as usize;
+        let col_index = col_index as usize;
+        self.board.0[row_index][col_index] = Cell::Number(number);
+
+        for col_index in 0..9 {
+            let cell = &mut self.board.0[row_index][col_index];
+            if let Cell::Constrained(ref mut cons) = cell {}
         }
     }
 
     fn insert_initial_constraints(&mut self) {
         for row_index in 0..9 {
-            let mut possible_nums = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+            let mut possible_nums = ConstraintList::full();
+            dbg!(&possible_nums.0);
             for col_index in 0..9 {
                 let cell = &self.board.0[row_index][col_index];
                 if let Cell::Number(n) = &cell {
-                    if let Some(index) = possible_nums.iter().position(|x| *x == *n) {
-                        possible_nums.remove(index);
-                    }
+                    possible_nums.remove(*n);
                 }
             }
             for col_index in 0..9 {
@@ -71,26 +69,25 @@ impl Solver {
                 }
             }
         }
+        print_board(&self.board);
     }
 
     // propagate constraints
     fn partially_propagate_constraints(&mut self) {
         fn partially_propagate_row_constraints(board: &mut Board) {
             for row_index in 0..9 {
-                let mut found_nums = Vec::with_capacity(9);
+                let mut found_nums = ConstraintList::empty();
                 for col_index in 0..9 {
                     let cell = &board.0[row_index][col_index];
                     if let Cell::Number(n) = cell {
-                        found_nums.push(*n);
+                        found_nums.insert(*n);
                     }
                 }
                 for col_index in 0..9 {
                     let cell = &mut board.0[row_index][col_index];
                     if let Cell::Constrained(cons) = cell {
                         for num in &found_nums {
-                            if let Some(index) = cons.iter().position(|x| *x == *num) {
-                                cons.remove(index);
-                            }
+                            cons.remove(num);
                         }
                     }
                 }
@@ -98,19 +95,17 @@ impl Solver {
         }
         fn partially_propagate_col_constraints(board: &mut Board) {
             for col_index in 0..9 {
-                let mut found_nums = Vec::with_capacity(9);
+                let mut found_nums = ConstraintList::empty();
                 for row_index in 0..9 {
                     if let Cell::Number(n) = board.0[row_index][col_index] {
-                        found_nums.push(n);
+                        found_nums.insert(n);
                     }
                 }
                 for row_index in 0..9 {
                     let cell = &mut board.0[row_index][col_index];
                     if let Cell::Constrained(cons) = cell {
                         for num in &found_nums {
-                            if let Some(index) = cons.iter().position(|x| *x == *num) {
-                                cons.remove(index);
-                            }
+                            cons.remove(num);
                         }
                     }
                 }
@@ -130,11 +125,9 @@ impl Solver {
                 for (offset_y, offset_x) in OFFSETS {
                     let row_index = (square_row_index + offset_y) as usize;
                     let col_index = (square_col_index + offset_x) as usize;
-                    if let Cell::Constrained(ref mut constraints) = &mut board.0[row_index][col_index] {
+                    if let Cell::Constrained(constraints) = &mut board.0[row_index][col_index] {
                         for num in &found_nums {
-                            if let Some(index) = constraints.iter().position(|x| x == num) {
-                                constraints.remove(index);
-                            }
+                            constraints.remove(*num)
                         }
                     }
                 }
@@ -155,7 +148,7 @@ impl Solver {
             for col_index in 0..9 {
                 let cell = self.board.0[row_index][col_index].clone();
                 if let Cell::Constrained(cons) = cell {
-                    for c in cons.clone() {
+                    for c in &cons.clone() {
                         self.board.0[row_index][col_index] = Cell::Number(c);
                         // print_board(&new_board);
                         if let SolveStatusProgress::Solved = self.solve_internal(false) {
@@ -204,7 +197,7 @@ impl Solver {
                             return (SolveStatusProgress::NotSolvable, made_progress);
                         }
                         Cell::Constrained(cons) if cons.len() == 1 => {
-                            *cell = Cell::Number(cons.last().cloned().unwrap());
+                            *cell = Cell::Number(cons.first().unwrap());
                             made_progress = true;
                         }
                         _ => continue,
@@ -219,7 +212,7 @@ impl Solver {
             let mut made_progress = false;
             for col_index in 0..9 {
                 // occurences number of occurence and indexes
-                let mut occurrences: FxHashMap<u8, Vec<(usize, usize)>> = FxHashMap::default();
+                let mut occurrences: FxHashMap<SudokuNum, Vec<(usize, usize)>> = FxHashMap::default();
                 for row_index in 0..9 {
                     let cell = &board.0[row_index][col_index];
                     match cell {
@@ -232,7 +225,7 @@ impl Solver {
                         Cell::Constrained(cons) => {
                             for c in cons {
                                 occurrences
-                                    .entry(*c)
+                                    .entry(c)
                                     .or_insert(Vec::with_capacity(9))
                                     .push((row_index, col_index));
                             }
@@ -240,11 +233,11 @@ impl Solver {
                         _ => {}
                     };
                 }
-                for i in 1..=9 {
-                    if let Some(indexes) = occurrences.get(&i) {
+                for i in 1..=9usize {
+                    if let Some(indexes) = occurrences.get(&i.into()) {
                         if indexes.len() == 1 {
                             let (row_index, col_index) = indexes.last().unwrap();
-                            board.0[*row_index][*col_index] = Cell::Number(i);
+                            board.0[*row_index][*col_index] = Cell::Number(i.into());
                             made_progress = true;
                         }
                     }
@@ -257,7 +250,7 @@ impl Solver {
             let mut made_progress = false;
             for col_index in 0..9 {
                 // occurences number of occurence and indexes
-                let mut occurrences: FxHashMap<u8, Vec<(usize, usize)>> = FxHashMap::default();
+                let mut occurrences: FxHashMap<SudokuNum, Vec<(usize, usize)>> = FxHashMap::default();
                 for row_index in 0..9 {
                     let cell = &board.0[row_index][col_index];
                     match cell {
@@ -270,7 +263,7 @@ impl Solver {
                         Cell::Constrained(cons) => {
                             for c in cons {
                                 occurrences
-                                    .entry(*c)
+                                    .entry(c)
                                     .or_insert(Vec::with_capacity(9))
                                     .push((row_index, col_index));
                             }
@@ -278,11 +271,11 @@ impl Solver {
                         _ => {}
                     };
                 }
-                for i in 1..=9 {
-                    if let Some(indexes) = occurrences.get(&i) {
+                for i in 1..=9usize {
+                    if let Some(indexes) = occurrences.get(&i.into()) {
                         if indexes.len() == 1 {
                             let (row_index, col_index) = indexes.last().unwrap();
-                            board.0[*row_index][*col_index] = Cell::Number(i);
+                            board.0[*row_index][*col_index] = Cell::Number(i.into());
                             made_progress = true;
                         }
                     }
@@ -310,7 +303,7 @@ impl Solver {
                         Cell::Constrained(cons) => {
                             for c in cons {
                                 occurrences
-                                    .entry(*c)
+                                    .entry(c)
                                     .or_insert(Vec::with_capacity(9))
                                     .push((row_index, col_index));
                             }
@@ -318,11 +311,11 @@ impl Solver {
                         _ => {}
                     };
                 }
-                for i in 1..=9 {
-                    if let Some(indexes) = occurrences.get(&i) {
+                for i in 1..=9usize {
+                    if let Some(indexes) = occurrences.get(&i.into()) {
                         if indexes.len() == 1 {
                             let (row_index, col_index) = indexes.last().unwrap();
-                            board.0[*row_index][*col_index] = Cell::Number(i);
+                            board.0[*row_index][*col_index] = Cell::Number(i.into());
                             made_progress = true;
                         }
                     }
@@ -352,4 +345,3 @@ impl Solver {
         SolveStatusProgress::Stalling
     }
 }
-

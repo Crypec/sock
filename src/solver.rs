@@ -2,346 +2,387 @@ use rustc_hash::FxHashMap;
 
 use crate::board::*;
 
-const MIDDLE_OF_SQUARE_INDEXES: [(i8, i8); 9] =
-    [(1, 1), (1, 4), (1, 7), (4, 1), (4, 4), (4, 7), (7, 1), (7, 4), (7, 7)];
-
-const OFFSETS: [(i8, i8); 9] = [
-    (-1, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, -1),
-    (0, 0),
-    (0, 1),
-    (1, -1),
-    (1, 0),
-    (1, 1),
-];
-
 #[derive(Debug, Copy, Clone)]
 pub struct BoardNotSolvableError;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum SolveStatusProgress {
-    Solved,
-    MadeProgress,
-    NotSolvable,
-    Stalling,
-}
-
 pub struct Solver {
     pub board: Board,
-    queue: Vec<(u8, u8)>,
+
+    hidden_sets_row_cache: FxHashMap<ConstraintList, Vec<(usize, usize)>>,
+    hidden_sets_col_cache: FxHashMap<ConstraintList, Vec<(usize, usize)>>,
+    hidden_sets_square_cache: FxHashMap<ConstraintList, Vec<(usize, usize)>>,
+
+    made_progress: bool,
+
+    col_missing: [ConstraintList; 9],
+    row_missing: [ConstraintList; 9],
+    square_missing: [ConstraintList; 9],
 }
 
 impl Solver {
     pub fn new(board: Board) -> Self {
         Self {
             board,
-            queue: Vec::with_capacity(81),
+
+            hidden_sets_row_cache: FxHashMap::default(),
+            hidden_sets_col_cache: FxHashMap::default(),
+            hidden_sets_square_cache: FxHashMap::default(),
+
+            made_progress: false,
+
+            col_missing: std::array::from_fn(|_| ConstraintList::full()),
+            row_missing: std::array::from_fn(|_| ConstraintList::full()),
+            square_missing: std::array::from_fn(|_| ConstraintList::full()),
         }
     }
 
-    fn insert_and_forward_propagate(&mut self, number: SudokuNum, row_index: u8, col_index: u8) {
-        let row_index = row_index as usize;
-        let col_index = col_index as usize;
-        self.board.0[row_index][col_index] = Cell::Number(number);
+    pub fn solve(&mut self) -> Result<Board, BoardNotSolvableError> {
+        self.insert_initial_constraints();
+        self.partially_propagate_constraints();
+        self.solve_internal()?;
+        Ok(self.board.clone())
+    }
 
-        for col_index in 0..9 {
-            let cell = &mut self.board.0[row_index][col_index];
-            if let Cell::Constrained(ref mut cons) = cell {}
+    fn solve_internal(&mut self) -> Result<(), BoardNotSolvableError> {
+        while !self.board.is_solved() {
+            while self.made_progress {
+                self.made_progress = false;
+                self.insert_naked_singles()?;
+                self.build_hidden_sets_cache();
+                self.insert_hidden_subsets();
+            }
+            self.solve_board_dfs()?;
+        }
+        Ok(())
+    }
+
+    fn solve_board_dfs(&mut self) -> Result<(), BoardNotSolvableError> {
+        for (row_index, col_index) in BoardIter::new() {
+            let cell = self.board.0[row_index][col_index];
+            if let Cell::Constrained(cons) = cell {
+                for c in &cons {
+                    let old_board = self.board.clone();
+                    self.insert_and_forward_propagate(c, row_index, col_index);
+                    if self.solve_internal().is_ok() {
+                        return Ok(());
+                    }
+                    self.board = old_board;
+                }
+                return Err(BoardNotSolvableError);
+            }
+        }
+        Err(BoardNotSolvableError)
+    }
+
+    fn insert_naked_singles(&mut self) -> Result<(), BoardNotSolvableError> {
+        for (row_index, col_index) in BoardIter::new() {
+            let cell = &self.board.0[row_index][col_index];
+            match cell {
+                Cell::Constrained(cons) if cons.is_empty() => {
+                    return Err(BoardNotSolvableError);
+                }
+                Cell::Constrained(cons) if cons.is_naked_single() => {
+                    let num = cons.first().unwrap();
+                    self.insert_and_forward_propagate(num, row_index, col_index);
+                }
+                _ => continue,
+            }
+        }
+        Ok(())
+    }
+
+    fn clear_subset_caches(&mut self) {
+        for (_, indexes) in &mut self.hidden_sets_row_cache {
+            indexes.clear();
+        }
+        for (_, indexes) in &mut self.hidden_sets_col_cache {
+            indexes.clear();
+        }
+        for (_, indexes) in &mut self.hidden_sets_square_cache {
+            indexes.clear();
         }
     }
 
-    fn insert_initial_constraints(&mut self) {
+    fn build_hidden_sets_cache(&mut self) {
+        self.clear_subset_caches();
+        for i in 0..9 {
+            for (row_index, col_index) in RowIter::new(i) {
+                let cell = &self.board.0[row_index][col_index];
+                if let Cell::Constrained(cons) = cell {
+                    for k in 1..=4 {
+                        let subsets = cons.combinations(k);
+                        for c in subsets {
+                            self.hidden_sets_row_cache
+                                .entry(c)
+                                .and_modify(|p| p.push((row_index, col_index)))
+                                .or_insert_with(|| Vec::with_capacity(9));
+                        }
+                    }
+                }
+            }
+            for (row_index, col_index) in ColIter::new(i) {
+                let cell = &self.board.0[row_index][col_index];
+                if let Cell::Constrained(cons) = cell {
+                    for k in 1..=4 {
+                        let subsets = cons.combinations(k);
+                        for c in subsets {
+                            self.hidden_sets_row_cache
+                                .entry(c)
+                                .and_modify(|p| p.push((row_index, col_index)))
+                                .or_insert_with(|| Vec::with_capacity(9));
+                        }
+                    }
+                }
+            }
+            for (row_index, col_index) in SquareIter::new(i) {
+                let cell = &self.board.0[row_index][col_index];
+                if let Cell::Constrained(cons) = cell {
+                    for k in 1..=4 {
+                        let subsets = cons.combinations(k);
+                        for c in subsets {
+                            self.hidden_sets_row_cache
+                                .entry(c)
+                                .and_modify(|p| p.push((row_index, col_index)))
+                                .or_insert_with(|| Vec::with_capacity(9));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn insert_hidden_subsets(&mut self) {
+        let max_capacity =
+            self.hidden_sets_row_cache.len() + self.hidden_sets_col_cache.len() + self.hidden_sets_square_cache.len();
+
+        let mut to_insert = Vec::with_capacity(max_capacity);
+        let mut to_override = Vec::with_capacity(max_capacity);
+
+        for (cons, indexes) in &self.hidden_sets_row_cache {
+            if indexes.len() == 1 {
+                for index in indexes {
+                    let (row_index, col_index) = index;
+                    let num = cons.first().unwrap();
+                    to_insert.push((num, (*row_index, *col_index)));
+                }
+            }
+            if (2..=4).contains(&indexes.len()) {
+                for index in indexes {
+                    let (row_index, col_index) = index;
+                    to_override.push((cons, (*row_index, *col_index)));
+                }
+            }
+        }
+        for (cons, (row_index, col_index)) in to_override {
+            self.board.0[row_index][col_index] = Cell::Constrained(*cons);
+        }
+        if !to_insert.is_empty() {
+            dbg!(&to_insert);
+        }
+        for (num, (row_index, col_index)) in to_insert {
+            self.insert_and_forward_propagate(num, row_index, col_index);
+        }
+    }
+
+    #[inline(always)]
+    const fn calculate_square_index(row_index: usize, col_index: usize) -> usize {
+        (row_index / 3) * 3 + col_index / 3
+    }
+
+    fn remove_from_missing_cache(&mut self, n: SudokuNum, row_index: usize, col_index: usize) {
+        let square_index = Self::calculate_square_index(row_index, col_index);
+
+        self.row_missing[row_index].remove(n);
+        self.col_missing[col_index].remove(n);
+        self.square_missing[square_index].remove(n);
+    }
+
+    pub fn insert_initial_constraints(&mut self) {
         for row_index in 0..9 {
             let mut possible_nums = ConstraintList::full();
-            dbg!(&possible_nums.0);
             for col_index in 0..9 {
                 let cell = &self.board.0[row_index][col_index];
                 if let Cell::Number(n) = &cell {
                     possible_nums.remove(*n);
+                    self.remove_from_missing_cache(*n, row_index, col_index);
                 }
             }
             for col_index in 0..9 {
                 let cell = &mut self.board.0[row_index][col_index];
-                if let Cell::Free = &cell {
-                    *cell = Cell::Constrained(possible_nums.clone());
+                if Cell::Free == *cell {
+                    *cell = Cell::Constrained(possible_nums);
                 }
             }
         }
-        print_board(&self.board);
+
+        self.partially_propagate_constraints();
     }
 
     // propagate constraints
-    fn partially_propagate_constraints(&mut self) {
-        fn partially_propagate_row_constraints(board: &mut Board) {
-            for row_index in 0..9 {
-                let mut found_nums = ConstraintList::empty();
-                for col_index in 0..9 {
-                    let cell = &board.0[row_index][col_index];
-                    if let Cell::Number(n) = cell {
-                        found_nums.insert(*n);
-                    }
-                }
-                for col_index in 0..9 {
-                    let cell = &mut board.0[row_index][col_index];
-                    if let Cell::Constrained(cons) = cell {
-                        for num in &found_nums {
-                            cons.remove(num);
-                        }
-                    }
-                }
-            }
-        }
-        fn partially_propagate_col_constraints(board: &mut Board) {
-            for col_index in 0..9 {
-                let mut found_nums = ConstraintList::empty();
-                for row_index in 0..9 {
-                    if let Cell::Number(n) = board.0[row_index][col_index] {
-                        found_nums.insert(n);
-                    }
-                }
-                for row_index in 0..9 {
-                    let cell = &mut board.0[row_index][col_index];
-                    if let Cell::Constrained(cons) = cell {
-                        for num in &found_nums {
-                            cons.remove(num);
-                        }
-                    }
-                }
-            }
-        }
-        fn partially_propagate_square_constraints(board: &mut Board) {
-            for (square_row_index, square_col_index) in MIDDLE_OF_SQUARE_INDEXES {
-                let mut found_nums = Vec::with_capacity(9);
-                for (offset_y, offset_x) in OFFSETS {
-                    let row_index = (square_row_index + offset_y) as usize;
-                    let col_index = (square_col_index + offset_x) as usize;
-                    if let Cell::Number(n) = board.0[row_index][col_index] {
-                        found_nums.push(n);
-                    }
-                }
-
-                for (offset_y, offset_x) in OFFSETS {
-                    let row_index = (square_row_index + offset_y) as usize;
-                    let col_index = (square_col_index + offset_x) as usize;
-                    if let Cell::Constrained(constraints) = &mut board.0[row_index][col_index] {
-                        for num in &found_nums {
-                            constraints.remove(*num)
-                        }
-                    }
-                }
-            }
-        }
-        partially_propagate_row_constraints(&mut self.board);
-        partially_propagate_col_constraints(&mut self.board);
-
-        partially_propagate_square_constraints(&mut self.board);
+    pub fn partially_propagate_constraints(&mut self) {
+        self.partially_propagate_row_constraints();
+        self.partially_propagate_col_constraints();
+        self.partially_propagate_square_constraints();
     }
 
-    pub fn solve(&mut self) -> SolveStatusProgress {
-        self.solve_internal(true)
+    fn partially_propagate_row_constraints(&mut self) {
+        for row_index in 0..9 {
+            let mut found_nums = ConstraintList::empty();
+            for (row_index, col_index) in RowIter::new(row_index) {
+                let cell = self.board.0[row_index][col_index];
+                if let Cell::Number(n) = cell {
+                    found_nums.insert(n);
+                }
+            }
+
+            for (row_index, col_index) in RowIter::new(row_index) {
+                let cell = &mut self.board.0[row_index][col_index];
+                if let Cell::Constrained(cons) = cell {
+                    cons.remove_all(&found_nums);
+                }
+            }
+        }
+    }
+    fn partially_propagate_col_constraints(&mut self) {
+        for col_index in 0..9 {
+            let mut found_nums = ConstraintList::empty();
+            for (row_index, col_index) in ColIter::new(col_index) {
+                let cell = &mut self.board.0[row_index][col_index];
+                if let Cell::Number(n) = cell {
+                    found_nums.insert(*n);
+                }
+            }
+            for (row_index, col_index) in ColIter::new(col_index) {
+                let cell = &mut self.board.0[row_index][col_index];
+                if let Cell::Constrained(cons) = cell {
+                    cons.remove_all(&found_nums);
+                }
+            }
+        }
+    }
+    fn partially_propagate_square_constraints(&mut self) {
+        for square_index in 0..9 {
+            let mut found_nums = ConstraintList::empty();
+            for (row_index, col_index) in SquareIter::new(square_index) {
+                let cell = &mut self.board.0[row_index][col_index];
+                if let Cell::Number(n) = cell {
+                    found_nums.insert(*n);
+                }
+            }
+            for (row_index, col_index) in SquareIter::new(square_index) {
+                let cell = &mut self.board.0[row_index][col_index];
+                if let Cell::Constrained(cons) = cell {
+                    cons.remove_all(&found_nums);
+                }
+            }
+        }
     }
 
-    fn solve_board_dfs(&mut self) -> SolveStatusProgress {
+    fn insert_and_forward_propagate(&mut self, num: SudokuNum, row_index: usize, col_index: usize) {
+        self.board.0[row_index][col_index] = Cell::Number(num);
+        self.made_progress = true;
+
+        for (row_index, col_index) in RowIter::new(row_index) {
+            let cell = &mut self.board.0[row_index][col_index];
+            if let Cell::Constrained(cons) = cell {
+                cons.remove(num);
+                if cons.is_naked_single() {
+                    let n = cons.first().unwrap();
+                    self.insert_and_forward_propagate(n, row_index, col_index);
+                }
+            }
+        }
+
+        for (row_index, col_index) in ColIter::new(col_index) {
+            let cell = &mut self.board.0[row_index][col_index];
+            if let Cell::Constrained(cons) = cell {
+                cons.remove(num);
+                if cons.is_naked_single() {
+                    let n = cons.first().unwrap();
+                    self.insert_and_forward_propagate(n, row_index, col_index);
+                }
+            }
+        }
+        let square_index = Self::calculate_square_index(row_index, col_index);
+        for (row_index, col_index) in SquareIter::new(square_index) {
+            let cell = &mut self.board.0[row_index][col_index];
+            if let Cell::Constrained(cons) = cell {
+                cons.remove(num);
+                if cons.is_naked_single() {
+                    let n = cons.first().unwrap();
+                    self.insert_and_forward_propagate(n, row_index, col_index);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_square_index() {
+        let expected: [[usize; 9]; 9] = [
+            [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            [3, 3, 3, 4, 4, 4, 5, 5, 5],
+            [3, 3, 3, 4, 4, 4, 5, 5, 5],
+            [3, 3, 3, 4, 4, 4, 5, 5, 5],
+            [6, 6, 6, 7, 7, 7, 8, 8, 8],
+            [6, 6, 6, 7, 7, 7, 8, 8, 8],
+            [6, 6, 6, 7, 7, 7, 8, 8, 8],
+        ];
         for row_index in 0..9 {
             for col_index in 0..9 {
-                let cell = self.board.0[row_index][col_index].clone();
-                if let Cell::Constrained(cons) = cell {
-                    for c in &cons.clone() {
-                        self.board.0[row_index][col_index] = Cell::Number(c);
-                        // print_board(&new_board);
-                        if let SolveStatusProgress::Solved = self.solve_internal(false) {
-                            return SolveStatusProgress::Solved;
-                        }
-                        self.board.0[row_index][col_index] = Cell::Constrained(cons.clone());
-                    }
-                    return SolveStatusProgress::NotSolvable;
-                }
+                let square_index = Solver::calculate_square_index(row_index, col_index);
+                assert!(square_index < 9);
+
+                let expected_square_index = expected[row_index][col_index];
+                assert_eq!(square_index, expected_square_index);
             }
         }
-        SolveStatusProgress::NotSolvable
     }
 
-    fn solve_internal(&mut self, is_first_iteration: bool) -> SolveStatusProgress {
-        if is_first_iteration {
-            self.insert_initial_constraints();
-        }
-        while !self.board.is_solved() {
-            self.partially_propagate_constraints();
-            let status = self.insert_forced_constraints();
-            match status {
-                SolveStatusProgress::Stalling => return self.solve_board_dfs(),
-                SolveStatusProgress::NotSolvable => return SolveStatusProgress::NotSolvable,
-                SolveStatusProgress::Solved => return SolveStatusProgress::Solved,
-                SolveStatusProgress::MadeProgress => {}
-            };
-            // let time_out = std::time::Duration::from_secs(1);
-            // std::thread::sleep(time_out);
-            // print_board(&board);
-        }
-        SolveStatusProgress::Solved
-    }
+    #[test]
+    fn test_insert_and_forward_propagate() {
+        let test_board = parse_board(vec![
+            vec!['5', '3', '.', '.', '7', '.', '.', '.', '.'],
+            vec!['6', '.', '.', '1', '9', '5', '.', '.', '.'],
+            vec!['.', '9', '8', '.', '.', '.', '.', '6', '.'],
+            vec!['8', '.', '.', '.', '6', '.', '.', '.', '3'],
+            vec!['4', '.', '.', '8', '.', '3', '.', '.', '1'],
+            vec!['7', '.', '.', '.', '2', '.', '.', '.', '6'],
+            vec!['.', '6', '.', '.', '.', '.', '2', '8', '.'],
+            vec!['.', '.', '.', '4', '1', '9', '.', '.', '5'],
+            vec!['.', '.', '.', '.', '8', '.', '.', '7', '9'],
+        ]);
+        let mut solver = Solver::new(test_board);
+        solver.insert_initial_constraints();
+        solver.partially_propagate_constraints();
+        solver.insert_and_forward_propagate(SudokuNum::Three, 8, 0);
 
-    fn insert_forced_constraints(&mut self) -> SolveStatusProgress {
-        fn insert_obviously_forced_constraints(board: &mut Board) -> (SolveStatusProgress, bool) {
-            let mut made_progress = false;
-
-            // a `forced` constraint is a constraint with len == 1
-            for row in board.0.iter_mut() {
-                for cell in row {
-                    match cell {
-                        // puzzle not solvable
-                        Cell::Constrained(cons) if cons.is_empty() => {
-                            // print_board(board);
-                            return (SolveStatusProgress::NotSolvable, made_progress);
-                        }
-                        Cell::Constrained(cons) if cons.len() == 1 => {
-                            *cell = Cell::Number(cons.first().unwrap());
-                            made_progress = true;
-                        }
-                        _ => continue,
-                    }
-                }
+        assert_eq!(solver.board.0[8][0], Cell::Number(SudokuNum::Three));
+        for (row_index, col_index) in RowIter::new(8) {
+            let cell = &solver.board.0[row_index][col_index];
+            if let Cell::Constrained(cons) = cell {
+                assert_eq!(cons.contains(SudokuNum::Three), false);
             }
-            // this seems to be wrong because we could be stalling after ending the loop without knowing it
-            (SolveStatusProgress::MadeProgress, made_progress)
         }
 
-        fn insert_forced_constraints_in_col(board: &mut Board) -> bool {
-            let mut made_progress = false;
-            for col_index in 0..9 {
-                // occurences number of occurence and indexes
-                let mut occurrences: FxHashMap<SudokuNum, Vec<(usize, usize)>> = FxHashMap::default();
-                for row_index in 0..9 {
-                    let cell = &board.0[row_index][col_index];
-                    match cell {
-                        Cell::Number(n) => {
-                            occurrences
-                                .entry(*n)
-                                .or_insert(Vec::with_capacity(9))
-                                .push((row_index, col_index));
-                        }
-                        Cell::Constrained(cons) => {
-                            for c in cons {
-                                occurrences
-                                    .entry(c)
-                                    .or_insert(Vec::with_capacity(9))
-                                    .push((row_index, col_index));
-                            }
-                        }
-                        _ => {}
-                    };
-                }
-                for i in 1..=9usize {
-                    if let Some(indexes) = occurrences.get(&i.into()) {
-                        if indexes.len() == 1 {
-                            let (row_index, col_index) = indexes.last().unwrap();
-                            board.0[*row_index][*col_index] = Cell::Number(i.into());
-                            made_progress = true;
-                        }
-                    }
-                }
+        for (row_index, col_index) in ColIter::new(0) {
+            let cell = &solver.board.0[row_index][col_index];
+            if let Cell::Constrained(cons) = cell {
+                assert_eq!(cons.contains(SudokuNum::Three), false);
             }
-            made_progress
         }
 
-        fn insert_forced_constraints_in_row(board: &mut Board) -> bool {
-            let mut made_progress = false;
-            for col_index in 0..9 {
-                // occurences number of occurence and indexes
-                let mut occurrences: FxHashMap<SudokuNum, Vec<(usize, usize)>> = FxHashMap::default();
-                for row_index in 0..9 {
-                    let cell = &board.0[row_index][col_index];
-                    match cell {
-                        Cell::Number(n) => {
-                            occurrences
-                                .entry(*n)
-                                .or_insert(Vec::with_capacity(9))
-                                .push((row_index, col_index));
-                        }
-                        Cell::Constrained(cons) => {
-                            for c in cons {
-                                occurrences
-                                    .entry(c)
-                                    .or_insert(Vec::with_capacity(9))
-                                    .push((row_index, col_index));
-                            }
-                        }
-                        _ => {}
-                    };
-                }
-                for i in 1..=9usize {
-                    if let Some(indexes) = occurrences.get(&i.into()) {
-                        if indexes.len() == 1 {
-                            let (row_index, col_index) = indexes.last().unwrap();
-                            board.0[*row_index][*col_index] = Cell::Number(i.into());
-                            made_progress = true;
-                        }
-                    }
-                }
+        for (row_index, col_index) in SquareIter::new(6) {
+            let cell = &solver.board.0[row_index][col_index];
+            if let Cell::Constrained(cons) = cell {
+                assert_eq!(cons.contains(SudokuNum::Three), false);
             }
-            made_progress
         }
-
-        fn insert_forced_constraints_in_squares(board: &mut Board) -> bool {
-            let mut made_progress = false;
-            for (square_row_index, square_col_index) in MIDDLE_OF_SQUARE_INDEXES {
-                let mut occurrences = FxHashMap::default();
-                for (offset_y, offset_x) in OFFSETS {
-                    let row_index = (square_row_index + offset_y) as usize;
-                    let col_index = (square_col_index + offset_x) as usize;
-
-                    let cell = &board.0[row_index][col_index];
-                    match cell {
-                        Cell::Number(n) => {
-                            occurrences
-                                .entry(*n)
-                                .or_insert(Vec::with_capacity(9))
-                                .push((row_index, col_index));
-                        }
-                        Cell::Constrained(cons) => {
-                            for c in cons {
-                                occurrences
-                                    .entry(c)
-                                    .or_insert(Vec::with_capacity(9))
-                                    .push((row_index, col_index));
-                            }
-                        }
-                        _ => {}
-                    };
-                }
-                for i in 1..=9usize {
-                    if let Some(indexes) = occurrences.get(&i.into()) {
-                        if indexes.len() == 1 {
-                            let (row_index, col_index) = indexes.last().unwrap();
-                            board.0[*row_index][*col_index] = Cell::Number(i.into());
-                            made_progress = true;
-                        }
-                    }
-                }
-            }
-            made_progress
-        }
-
-        let mut made_progress = false;
-
-        made_progress |= {
-            let (status, made_progress) = insert_obviously_forced_constraints(&mut self.board);
-            if let SolveStatusProgress::NotSolvable = status {
-                return SolveStatusProgress::NotSolvable;
-            }
-            made_progress
-        };
-
-        insert_forced_constraints_in_row(&mut self.board);
-        insert_forced_constraints_in_col(&mut self.board);
-        insert_forced_constraints_in_squares(&mut self.board);
-
-        if made_progress {
-            return SolveStatusProgress::MadeProgress;
-        }
-
-        SolveStatusProgress::Stalling
     }
 }

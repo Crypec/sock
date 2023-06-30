@@ -98,22 +98,22 @@ fn main() -> Result<(), BoardNotSolvableError> {
     let test_data = std::fs::read_to_string("test_data.txt").unwrap();
     let boards = parse_boards_list(&test_data);
 
-    let now = std::time::Instant::now();
-    for (index, board) in boards.into_iter().enumerate() {
-        let mut solver = Solver::new(board.clone());
-        let now = std::time::Instant::now();
-        let _ = solver.solve()?;
-        println!("{index} :: in {:?}", now.elapsed());
-    }
-
-    println!("took :: {:?}", now.elapsed());
-
-    // print_board(&boards[4].clone());
-    // let mut solver = Solver::new(boards[4].clone());
     // let now = std::time::Instant::now();
-    // let status = solver.solve();
-    // println!("status :: {status:?} in {:?}", now.elapsed());
-    // print_board(&solver.board);
+    // for (index, board) in boards.into_iter().enumerate() {
+    //     let mut solver = Solver::new(board.clone());
+    //     let now = std::time::Instant::now();
+    //     let _ = solver.solve()?;
+    //     println!("{index} :: in {:?}", now.elapsed());
+    // }
+
+    // println!("took :: {:?}", now.elapsed());
+
+    dbg!(&boards[4].clone());
+    let mut solver = Solver::new(boards[4].clone());
+    let now = std::time::Instant::now();
+    let status = solver.solve();
+    println!("status :: {status:?} in {:?}", now.elapsed());
+    dbg!(&solver.board);
 
     // print_board(&mut boards[4]);
     Ok(())

@@ -4,9 +4,13 @@
 
 use cli_table::{Style, Table};
 use std::fmt;
+use std::ops::Index;
+
+#[derive(Hash, Clone, Eq, PartialEq)]
+pub struct Board(pub [[Cell; 9]; 9]);
 
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
-pub struct Board(pub [[Cell; 9]; 9]);
+pub struct BoardIndex(u8);
 
 /// A `Board` is `solved` when all the rows, columns and houses contain the numbers from 1 to 9
 impl Board {
@@ -65,6 +69,30 @@ impl Board {
 
         true
     }
+}
+
+impl Index<BoardIndex> for Board {
+    type Output = Cell;
+    fn index(&self, index: BoardIndex) -> &Self::Output {
+        let row_index = ((index.0 & 0b1111_0000) >> 4) as usize;
+        let col_index = (index.0 & 0b1111_0000) as usize;
+        assert!(row_index <= 8 && col_index <= 8);
+        &self.0[row_index][col_index]
+    }
+}
+
+impl BoardIndex {
+    pub const fn new(row_index: u8, col_index: u8) -> Self {
+        assert!(row_index <= 8 && col_index <= 8);
+        let index = (row_index << 4) | col_index;
+        Self(index)
+    }
+}
+
+macro_rules! for_row {
+    ($board:expr, $cell:ident) => {
+        let board: Board = $board;
+    };
 }
 
 const MIDDLE_OF_SQUARE_INDEXES: [(usize, usize); 9] =
@@ -442,14 +470,12 @@ pub fn parse_char_to_sudoku_num(c: char) -> SudokuNum {
     }
 }
 
-pub fn print_board(board: &Board) {
-    let table = board.0.clone().table().bold(true).display().unwrap();
+impl fmt::Debug for Board {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let table = self.0.clone().table().bold(true).display().unwrap();
 
-    println!(
-        "\n{table}\n",
-        // termion::clear::All,
-        // termion::cursor::Goto(1, 1)
-    );
+        write!(f, "\n{}\n", table)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -675,5 +701,103 @@ mod test {
 
         dbg!(cons);
         assert_eq!(results, vec![ConstraintList::from_raw_bits(0b0000_0000_0000_1111),]);
+    }
+
+    #[test]
+    fn test_combinations_iter_k1_multiple_bits() {
+        let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1111);
+        let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
+
+        assert_eq!(
+            results,
+            vec![
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0001),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0010),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0100),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_1000),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_combinations_iter_k1_full() {
+        let cons = ConstraintList::full();
+        let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
+
+        assert_eq!(
+            results,
+            vec![
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0001),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0010),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0100),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_1000),
+                ConstraintList::from_raw_bits(0b0000_0000_0001_0000),
+                ConstraintList::from_raw_bits(0b0000_0000_0010_0000),
+                ConstraintList::from_raw_bits(0b0000_0000_0100_0000),
+                ConstraintList::from_raw_bits(0b0000_0000_1000_0000),
+                ConstraintList::from_raw_bits(0b0000_0001_0000_0000),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_combinations_iter_k1_single_bit_high() {
+        let cons = ConstraintList::from_raw_bits(0b0000_0000_1000_0000);
+        let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
+
+        assert_eq!(results, vec![ConstraintList::from_raw_bits(0b0000_0000_1000_0000)]);
+    }
+
+    #[test]
+    fn test_combinations_iter_k1_no_bits_high() {
+        let mut iter = ConstraintList::from_raw_bits(0b0000_0000_0000_0000).combinations(1);
+
+        assert_eq!(iter.next(), None);
+    }
+    #[test]
+    fn test_combinations_iter_k2_multiple_bits() {
+        let cons = ConstraintList::from_raw_bits(0b0000_0000_0001_1111);
+        let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
+
+        dbg!(&cons);
+
+        assert_eq!(
+            results,
+            vec![
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0011),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0101),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_0110),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_1001),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_1010),
+                ConstraintList::from_raw_bits(0b0000_0000_0000_1100),
+                ConstraintList::from_raw_bits(0b0000_0000_0001_0001),
+                ConstraintList::from_raw_bits(0b0000_0000_0001_0010),
+                ConstraintList::from_raw_bits(0b0000_0000_0001_0100),
+                ConstraintList::from_raw_bits(0b0000_0000_0001_1000),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_combinations_iter_k2_single_bit_high() {
+        let cons = ConstraintList::from_raw_bits(0b0000_0000_1000_0001);
+        let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
+
+        assert_eq!(results, vec![ConstraintList::from_raw_bits(0b0000_0000_1000_0001)]);
+    }
+
+    #[test]
+    fn test_combinations_iter_k2_no_bits_high() {
+        let mut iter = ConstraintList::from_raw_bits(0b0000_0000_0000_0000).combinations(2);
+
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_combinations_iter_k2_single_bit() {
+        let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1000);
+        let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
+
+        assert_eq!(results, vec![]);
     }
 }

@@ -1,5 +1,4 @@
 #![warn(clippy::nursery)]
-#![warn(clippy::pedantic)]
 // #![warn(clippy::restriction)]
 
 use cli_table::{Style, Table};
@@ -87,12 +86,6 @@ impl BoardIndex {
         let index = (row_index << 4) | col_index;
         Self(index)
     }
-}
-
-macro_rules! for_row {
-    ($board:expr, $cell:ident) => {
-        let board: Board = $board;
-    };
 }
 
 const MIDDLE_OF_SQUARE_INDEXES: [(usize, usize); 9] =
@@ -218,6 +211,8 @@ impl SquareIter {
 impl Iterator for SquareIter {
     type Item = (usize, usize);
 
+    #[allow(clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_wrap)]
     fn next(&mut self) -> Option<Self::Item> {
         let cursor = self.cursor;
         self.cursor += 1;
@@ -259,26 +254,30 @@ impl std::fmt::Display for SudokuNum {
     }
 }
 
-impl From<usize> for SudokuNum {
-    fn from(number: usize) -> Self {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct InvalidSudokuNumError;
+
+impl TryFrom<usize> for SudokuNum {
+    type Error = InvalidSudokuNumError;
+    fn try_from(number: usize) -> Result<Self, InvalidSudokuNumError> {
         match number {
-            1 => Self::One,
-            2 => Self::Two,
-            3 => Self::Three,
-            4 => Self::Four,
-            5 => Self::Five,
-            6 => Self::Six,
-            7 => Self::Seven,
-            8 => Self::Eight,
-            9 => Self::Nine,
+            1 => Ok(Self::One),
+            2 => Ok(Self::Two),
+            3 => Ok(Self::Three),
+            4 => Ok(Self::Four),
+            5 => Ok(Self::Five),
+            6 => Ok(Self::Six),
+            7 => Ok(Self::Seven),
+            8 => Ok(Self::Eight),
+            9 => Ok(Self::Nine),
             _ => panic!("failed to convert `{number}` to suduku number!"),
         }
     }
 }
 
 impl From<u8> for SudokuNum {
-    fn from(number: u8) -> SudokuNum {
-        (number as usize).into()
+    fn from(number: u8) -> Self {
+        (number as usize).try_into().expect("failed to convert to sudoku number")
     }
 }
 
@@ -294,15 +293,15 @@ impl ConstraintList {
         Self(U9BitArray::new(0b_0000_0000_0000_0000))
     }
 
-    fn from_raw_bits(raw: u16) -> Self {
+    const fn from_raw_bits(raw: u16) -> Self {
         Self(U9BitArray::new(raw))
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(self) -> bool {
         self.0.count_ones() == 0
     }
 
-    pub fn is_naked_single(&self) -> bool {
+    pub const fn is_naked_single(self) -> bool {
         self.len() == 1
     }
 
@@ -314,25 +313,25 @@ impl ConstraintList {
         self.0.clear_bit((num as u8) - 1);
     }
 
-    pub fn remove_all(&mut self, other: &Self) {
-        self.0.mask(&other.0)
+    pub fn remove_all(&mut self, other: Self) {
+        self.0.mask(other.0);
     }
 
-    pub fn contains(&self, needle: SudokuNum) -> bool {
+    pub const fn contains(self, needle: SudokuNum) -> bool {
         self.0.is_bit_set((needle as usize) - 1)
     }
 
-    pub fn contains_all(&self, other: &Self) -> bool {
+    pub const fn contains_all(self, other: Self) -> bool {
         self.0 .0 & other.0 .0 == self.0 .0
     }
 
-    pub fn first(&self) -> Option<SudokuNum> {
-        self.0.first_index().map(|x| (x + 1).into())
+    pub fn first(self) -> Option<SudokuNum> {
+        self.0.first_index().map(|x| (x + 1).try_into().expect("failed to convert to sudoku number"))
     }
-    pub fn len(&self) -> u32 {
+    pub const fn len(self) -> u32 {
         self.0.count_ones()
     }
-    pub fn combinations(&self, k: u8) -> CombinationsIter {
+    pub const fn combinations(self, k: u8) -> CombinationsIter {
         let current = (1 << k) - 1;
         CombinationsIter {
             k,
@@ -357,12 +356,12 @@ impl Iterator for CombinationsIter {
                 let result = self.current;
                 let tmp = self.current & (!self.current + 1);
                 let mobile = self.current + tmp;
-                self.current = ((mobile ^ self.current) >> 2) / tmp | mobile;
+                self.current = (((mobile ^ self.current) >> 2) / tmp) | mobile;
                 return Some(ConstraintList::from_raw_bits(result));
             }
             let tmp = self.current & (!self.current + 1);
             let mobile = self.current + tmp;
-            self.current = ((mobile ^ self.current) >> 2) / tmp | mobile;
+            self.current = (((mobile ^ self.current) >> 2) / tmp) | mobile;
         }
         None
     }
@@ -416,7 +415,7 @@ impl<'a> IntoIterator for &'a ConstraintList {
 impl std::fmt::Debug for ConstraintList {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
         let cons = &self.into_iter().map(|n| n as u8).collect::<Vec<u8>>();
-        write!(f, "{:?}", cons)
+        write!(f, "{cons:?}")
     }
 }
 
@@ -472,9 +471,9 @@ pub fn parse_char_to_sudoku_num(c: char) -> SudokuNum {
 
 impl fmt::Debug for Board {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let table = self.0.clone().table().bold(true).display().unwrap();
+        let table = self.0.table().bold(true).display().unwrap();
 
-        write!(f, "\n{}\n", table)
+        write!(f, "\n{table}\n")
     }
 }
 
@@ -489,7 +488,6 @@ impl U9BitArray {
         unsafe { Self(value) }
     }
 
-    #[inline(always)]
     pub fn set_bit(&mut self, index: u8) {
         assert!(index <= 9, "index out of range");
         unsafe {
@@ -497,7 +495,7 @@ impl U9BitArray {
         }
     }
 
-    pub fn is_bit_set(&self, index: usize) -> bool {
+    pub const fn is_bit_set(self, index: usize) -> bool {
         assert!(index <= 9, "index out of range");
         self.0 & (1 << index) != 0
     }
@@ -509,16 +507,16 @@ impl U9BitArray {
         }
     }
 
-    pub fn mask(&mut self, other: &Self) {
+    pub fn mask(&mut self, other: Self) {
         unsafe {
             self.0 &= !other.0;
         }
     }
 
-    pub fn count_ones(&self) -> u32 {
+    pub const fn count_ones(self) -> u32 {
         self.0.count_ones()
     }
-    pub fn first_index(&self) -> Option<usize> {
+    pub fn first_index(self) -> Option<usize> {
         (0..9).find(|&i| self.is_bit_set(i))
     }
 }

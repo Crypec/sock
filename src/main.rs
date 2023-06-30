@@ -4,10 +4,13 @@
 #![feature(associated_type_bounds)]
 #![feature(rustc_attrs)]
 
+#![allow(dead_code)]
+#![allow(clippy::module_name_repetitions)]
+
 // #![warn(clippy::restriction)]
 
-use crate::board::*;
-use crate::solver::*;
+use crate::board::{Board, Cell, parse_board, parse_char_to_sudoku_num};
+use crate::solver::{BoardNotSolvableError, Solver};
 
 mod board;
 mod solver;
@@ -19,15 +22,15 @@ fn parse_boards_list(raw: &str) -> Vec<Board> {
 fn parse_board_from_line(line: &str) -> Board {
     debug_assert_eq!(line.len(), 81);
     let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Free));
-    for row_index in 0..9 {
-        for col_index in 0..9 {
+    for (row_index, row) in  new_board.iter_mut().enumerate() {
+        for (col_index, cell) in row.iter_mut().enumerate() {
             let char_cell = (line.as_bytes()[(row_index * 9) + col_index]) as char;
-            let cell = match char_cell {
+            let new_cell = match char_cell {
                 '1'..='9' => Cell::Number(parse_char_to_sudoku_num(char_cell)),
                 '.' | '0' => Cell::Free,
                 _ => panic!("invalid char"),
             };
-            new_board[row_index][col_index] = cell;
+            *cell = new_cell;
         }
     }
     board::Board(new_board)
@@ -82,7 +85,7 @@ fn main() -> Result<(), BoardNotSolvableError> {
         vec!['.', '.', '.', '.', '8', '.', '.', '7', '9'],
     ]);
 
-    let test_board_solution = parse_board(vec![
+    let _test_board_solution = parse_board(vec![
         vec!['5', '3', '4', '6', '7', '8', '9', '1', '2'],
         vec!['6', '7', '2', '1', '9', '5', '3', '4', '8'],
         vec!['1', '9', '8', '3', '4', '2', '5', '6', '7'],
@@ -94,26 +97,28 @@ fn main() -> Result<(), BoardNotSolvableError> {
         vec!['3', '4', '5', '2', '8', '6', '1', '7', '9'],
     ]);
 
-    dbg!(std::mem::size_of::<Board>());
     let test_data = std::fs::read_to_string("test_data.txt").unwrap();
     let boards = parse_boards_list(&test_data);
 
-    // let now = std::time::Instant::now();
-    // for (index, board) in boards.into_iter().enumerate() {
-    //     let mut solver = Solver::new(board.clone());
-    //     let now = std::time::Instant::now();
-    //     let _ = solver.solve()?;
-    //     println!("{index} :: in {:?}", now.elapsed());
-    // }
-
-    // println!("took :: {:?}", now.elapsed());
-
-    dbg!(&boards[4].clone());
-    let mut solver = Solver::new(boards[4].clone());
     let now = std::time::Instant::now();
-    let status = solver.solve();
-    println!("status :: {status:?} in {:?}", now.elapsed());
-    dbg!(&solver.board);
+    for (index, board) in boards.into_iter().enumerate() {
+        let mut solver = Solver::new(board.clone());
+        let now = std::time::Instant::now();
+        println!("{index}");
+        let _ = solver.solve()?;
+        println!("{index} :: in {:?}", now.elapsed());
+    }
+
+    println!("took :: {:?}", now.elapsed());
+
+
+    // let board = &boards[4];
+    // dbg!(&board);
+    // let mut solver = Solver::new(board.clone());
+    // let now = std::time::Instant::now();
+    // let status = solver.solve();
+    // dbg!(&solver.board);
+    // println!("status :: {status:?} in {:?}", now.elapsed());
 
     // print_board(&mut boards[4]);
     Ok(())

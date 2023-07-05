@@ -277,7 +277,9 @@ impl TryFrom<usize> for SudokuNum {
 
 impl From<u8> for SudokuNum {
     fn from(number: u8) -> Self {
-        (number as usize).try_into().expect("failed to convert to sudoku number")
+        (number as usize)
+            .try_into()
+            .expect("failed to convert to sudoku number")
     }
 }
 
@@ -326,7 +328,9 @@ impl ConstraintList {
     }
 
     pub fn first(self) -> Option<SudokuNum> {
-        self.0.first_index().map(|x| (x + 1).try_into().expect("failed to convert to sudoku number"))
+        self.0
+            .first_index()
+            .map(|x| (x + 1).try_into().expect("failed to convert to sudoku number"))
     }
     pub const fn len(self) -> u32 {
         self.0.count_ones()

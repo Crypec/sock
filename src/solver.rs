@@ -39,43 +39,44 @@ impl Solver {
     pub fn solve(&mut self) -> Result<Board, BoardNotSolvableError> {
         self.insert_initial_constraints();
         self.partially_propagate_constraints();
-        self.solve_internal()?;
-        Ok(self.board.clone())
+        self.solve_internal(0)
     }
 
-    fn solve_internal(&mut self) -> Result<(), BoardNotSolvableError> {
-        while !self.board.is_solved() {
-            // dbg!(self.made_progress);
-            // dbg!(&self.board);
+    fn solve_internal(&mut self, depth: usize) -> Result<Board, BoardNotSolvableError> {
+
+        loop {
+            if self.board.is_solved() {
+                break
+            }
             while self.made_progress {
                 self.made_progress = false;
                 self.insert_naked_singles()?;
-                // dbg!(&self.board);
-                // self.insert_hidden_singles();
-                // self.insert_hidden_subsets();
+                self.insert_hidden_singles();
             }
-            self.solve_dfs()?;
+            return self.solve_dfs(depth + 1);
         }
-        Ok(())
+        return Ok(self.board.clone())
     }
 
-    fn solve_dfs(&mut self) -> Result<(), BoardNotSolvableError> {
-        // panic!("failed to solve in dfs {:?}", self.board);
+    fn solve_dfs(&mut self, depth: usize) -> Result<Board, BoardNotSolvableError> {
         for (row_index, col_index) in BoardIter::new() {
-            let cell = self.board.0[row_index][col_index];
+            let cell = &self.board.0[row_index][col_index];
             if let Cell::Constrained(cons) = cell {
-                for c in &cons {
+                for c in cons {
                     let old_board = self.board.clone();
                     self.insert_and_forward_propagate(c, row_index, col_index);
-                    if self.solve_internal().is_ok() {
-                        return Ok(());
+
+                    if let Err(e) = self.solve_internal(depth + 1) {
+                        return Err(e);
                     }
                     self.board = old_board;
                 }
+                dbg!(depth);
+                dbg!((row_index, col_index));
+                dbg!(&self.board);
                 return Err(BoardNotSolvableError);
             }
         }
-        // panic!("board not solvable in `solve_board_dfs` :: end of function");
         Err(BoardNotSolvableError)
     }
 
@@ -180,7 +181,7 @@ impl Solver {
         // dbg!(&self.hidden_sets_square_cache);
     }
 
-    pub fn insert_hidden_subsets(&mut self, subsets: &FxHashMap<ConstraintList, Vec<(usize, usize)>>) {
+    pub fn insert_hidden_subsets(&mut self, subsets: &FxHashMap<ConstraintList, Vec<(usize, usize)>>) -> Result<(), BoardNotSolvableError> {
         let max_capacity = subsets.len();
         let mut to_insert = Vec::with_capacity(max_capacity);
         let mut to_override = Vec::with_capacity(max_capacity);
@@ -218,8 +219,9 @@ impl Solver {
         // }
 
         for (num, (row_index, col_index)) in to_insert {
-            self.insert_and_forward_propagate(num, row_index, col_index);
+            self.insert_and_forward_propagate(num, row_index, col_index)?;
         }
+        Ok(())
     }
 
     const fn calculate_square_index(row_index: usize, col_index: usize) -> usize {
@@ -342,6 +344,30 @@ impl Solver {
                 }
             }
         }
+    }
+
+    pub fn is_subset(&self, other: &Board) -> bool {
+        let mut is_subset = true;
+        for (row_index, col_index) in BoardIter::new() {
+            let cell = &self.board.0[row_index][col_index];
+            let needle = &other.0[row_index][col_index];
+            match (cell, needle) {
+                (Cell::Number(n1), Cell::Number(n2)) if n1 == n2 => {
+                    continue
+                }
+                (Cell::Constrained(cons), Cell::Number(n)) if cons.contains(*n) => {
+                    continue
+                }
+                (Cell::Constrained(c1), Cell::Constrained(c2)) if c1.contains_all(*c2) => {
+                    continue
+                }
+                (_, _) => {
+                    dbg!((row_index, col_index));
+                    is_subset = false;
+                }
+            }
+        }
+        is_subset
     }
 }
 

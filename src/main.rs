@@ -3,13 +3,12 @@
 #![warn(clippy::pedantic)]
 #![feature(associated_type_bounds)]
 #![feature(rustc_attrs)]
-
 #![allow(dead_code)]
 #![allow(clippy::module_name_repetitions)]
 
 // #![warn(clippy::restriction)]
 
-use crate::board::{Board, Cell, parse_board, parse_char_to_sudoku_num};
+use crate::board::{parse_board, parse_char_to_sudoku_num, Board, Cell};
 use crate::solver::{BoardNotSolvableError, Solver};
 
 mod board;
@@ -22,7 +21,7 @@ fn parse_boards_list(raw: &str) -> Vec<Board> {
 fn parse_board_from_line(line: &str) -> Board {
     debug_assert_eq!(line.len(), 81);
     let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Free));
-    for (row_index, row) in  new_board.iter_mut().enumerate() {
+    for (row_index, row) in new_board.iter_mut().enumerate() {
         for (col_index, cell) in row.iter_mut().enumerate() {
             let char_cell = (line.as_bytes()[(row_index * 9) + col_index]) as char;
             let new_cell = match char_cell {
@@ -34,6 +33,91 @@ fn parse_board_from_line(line: &str) -> Board {
         }
     }
     board::Board(new_board)
+}
+
+struct GPTSolver {
+    grid: [[u8; 9]; 9],
+    rows: [u16; 9],
+    cols: [u16; 9],
+    boxes: [u16; 9],
+}
+
+impl GPTSolver {
+    fn new(input: [[char; 9]; 9]) -> GPTSolver {
+        let mut solver = GPTSolver {
+            grid: [[0; 9]; 9],
+            rows: [0; 9],
+            cols: [0; 9],
+            boxes: [0; 9],
+        };
+
+        for i in 0..9 {
+            for j in 0..9 {
+                if input[i][j] != '.' {
+                    let num = input[i][j].to_digit(10).unwrap();
+                    let bit = 1 << num;
+                    solver.grid[i][j] = num as u8;
+                    solver.rows[i] |= bit;
+                    solver.cols[j] |= bit;
+                    solver.boxes[(i / 3) * 3 + j / 3] |= bit;
+                }
+            }
+        }
+
+        solver
+    }
+    fn solve(&mut self) -> bool {
+        for i in 0..9 {
+            for j in 0..9 {
+                if self.grid[i][j] == 0 {
+                    for num in 1..=9 {
+                        let bit = 1 << num;
+                        if self.rows[i] & bit == 0
+                            && self.cols[j] & bit == 0
+                            && self.boxes[(i / 3) * 3 + j / 3] & bit == 0
+                        {
+                            self.grid[i][j] = num as u8;
+                            self.rows[i] |= bit;
+                            self.cols[j] |= bit;
+                            self.boxes[(i / 3) * 3 + j / 3] |= bit;
+
+                            if self.solve() {
+                                return true;
+                            }
+
+                            self.grid[i][j] = 0;
+                            self.rows[i] &= !bit;
+                            self.cols[j] &= !bit;
+                            self.boxes[(i / 3) * 3 + j / 3] &= !bit;
+                        }
+                    }
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
+use std::fs;
+
+fn parse_gpt_boards(filename: &str) -> Result<Vec<[[char; 9]; 9]>, std::io::Error> {
+    let content = fs::read_to_string(filename)?;
+    let lines = content.lines().skip(1);
+
+    let mut boards = Vec::new();
+
+    for line in lines {
+        let mut board = [['.'; 9]; 9];
+        for (i, cell) in line.chars().enumerate() {
+            let row = i / 9;
+            let col = i % 9;
+            board[row][col] = if cell == '0' { '.' } else { cell };
+        }
+        boards.push(board);
+    }
+
+    Ok(boards)
 }
 
 fn main() -> Result<(), BoardNotSolvableError> {
@@ -99,26 +183,41 @@ fn main() -> Result<(), BoardNotSolvableError> {
 
     let test_data = std::fs::read_to_string("test_data.txt").unwrap();
     let boards = parse_boards_list(&test_data);
+    // let boards = parse_gpt_boards("test_data.txt").unwrap();
 
-    let now = std::time::Instant::now();
-    for (index, board) in boards.into_iter().enumerate() {
-        let mut solver = Solver::new(board.clone());
-        let now = std::time::Instant::now();
-        println!("{index}");
-        let _ = solver.solve()?;
-        println!("{index} :: in {:?}", now.elapsed());
-    }
-
-    println!("took :: {:?}", now.elapsed());
-
-
-    // let board = &boards[4];
-    // dbg!(&board);
-    // let mut solver = Solver::new(board.clone());
     // let now = std::time::Instant::now();
-    // let status = solver.solve();
-    // dbg!(&solver.board);
-    // println!("status :: {status:?} in {:?}", now.elapsed());
+    // for (index, board) in boards.into_iter().enumerate() {
+    //     let mut solver = Solver::new(board.clone());
+    //     let now = std::time::Instant::now();
+    //     println!("{index}");
+    //     let _ = solver.solve()?;
+    //     println!("{index} :: in {:?}", now.elapsed());
+    // }
+
+    // println!("took :: {:?}", now.elapsed());
+
+    let _board_4_solution = parse_board(vec![
+        vec!['3', '4', '6', '7', '9', '5', '8', '1', '2'],
+        vec!['2', '5', '8', '4', '3', '1', '6', '9', '7'],
+        vec!['9', '7', '1', '8', '6', '2', '5', '4', '3'],
+
+        vec!['1', '2', '9', '5', '7', '6', '4', '3', '8'],
+        vec!['8', '3', '5', '2', '1', '4', '7', '6', '9'],
+        vec!['7', '6', '4', '3', '8', '9', '2', '5', '1'],
+
+        vec!['5', '1', '7', '9', '4', '8', '3', '2', '6'],
+        vec!['4', '9', '3', '6', '2', '7', '1', '8', '5'],
+        vec!['6', '8', '2', '1', '5', '3', '9', '7', '4'],
+    ]);
+
+    let board = &boards[4];
+    dbg!(&board);
+    let mut solver = Solver::new(boards[4].clone());
+    let now = std::time::Instant::now();
+    let status = solver.solve();
+    dbg!(&solver.board);
+    dbg!(&solver.is_subset(&_board_4_solution));
+    println!("status :: {status:?} in {:?}", now.elapsed());
 
     // print_board(&mut boards[4]);
     Ok(())

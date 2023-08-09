@@ -11,7 +11,8 @@
 // #![warn(clippy::restriction)]
 
 use crate::board::{parse_char_to_sudoku_num, Board, Cell};
-use crate::solver::{BoardNotSolvableError, Solver};
+use crate::solver::Solver;
+use std::assert_matches::assert_matches;
 
 mod board;
 mod solver;
@@ -37,12 +38,13 @@ fn parse_board_from_line(line: &str) -> Board {
     board::Board(new_board)
 }
 
-fn main() -> Result<(), BoardNotSolvableError> {
-    let test_data = std::fs::read_to_string("test_data.txt").unwrap();
+fn main() {
+    let test_data = std::fs::read_to_string("/home/simon/Code/sock/test_data.txt").unwrap();
     let boards = parse_boards_list(&test_data);
 
     let now = std::time::Instant::now();
-    for i in 0..=100 {
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..=1000 {
         let board = boards[i].clone();
         let mut solver = Solver::new(board.clone());
         let now = std::time::Instant::now();
@@ -50,10 +52,8 @@ fn main() -> Result<(), BoardNotSolvableError> {
         let status = solver.solve();
         dbg!(&solver.board);
         println!("{i} :: in {:?}", now.elapsed());
-        assert!(status.is_ok());
+        assert_matches!(status, Ok(b) if b.is_solved());
     }
 
     println!("took :: {:?}", now.elapsed());
-
-    Ok(())
 }

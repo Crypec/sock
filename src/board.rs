@@ -5,42 +5,41 @@ use cli_table::{Style, Table};
 use std::fmt;
 // use std::ops::Index;
 
-#[derive(Hash, Clone, Eq, PartialEq)]
-pub struct Board(pub [[Cell; 9]; 9]);
-
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
 pub struct BoardIndex(u8);
 
-/// A `Board` is `solved` when all the rows, columns and houses contain the numbers from 1 to 9
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum Cell {
+    Number(SudokuNum),
+    Free,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct Board(pub [[Cell; 9]; 9]);
+
 impl Board {
+    /// A `Board` is `solved` when all the rows, columns and houses contain the numbers from 1 to 9
     pub fn is_solved(&self) -> bool {
-        // short circuit if the board contains empty or unsolved cells
-        let contains_unsolved_cells = self
-            .0
-            .iter()
-            .flat_map(|row| row.iter())
-            .any(|cell| matches!(cell, Cell::Constrained(_) | Cell::Free));
-        if contains_unsolved_cells {
-            return false;
-        }
         for i in 0..9 {
             // check if all the numbers are present in the rows
             {
                 let mut required_nums = ConstraintList::full();
-                for (row_index, col_index) in ColIter::new(i) {
+                for (row_index, col_index) in RowIter::new(i) {
                     let cell = self.0[row_index][col_index];
-                    if let Cell::Number(n) = cell {
-                        required_nums.remove(n);
-                    }
+                    match cell {
+                        Cell::Number(n) => required_nums.remove(n),
+                        Cell::Free => return false,
+                    };
                 }
                 if !required_nums.is_empty() {
                     return false;
                 }
             }
+
             // check if all the numbers are present in the columns
             {
                 let mut required_nums = ConstraintList::full();
-                for (row_index, col_index) in RowIter::new(i) {
+                for (row_index, col_index) in ColIter::new(i) {
                     let cell = self.0[row_index][col_index];
                     if let Cell::Number(n) = cell {
                         required_nums.remove(n);
@@ -67,6 +66,31 @@ impl Board {
         }
 
         true
+    }
+}
+
+pub struct BoardWithConstraints(pub [[CellWithConstraints; 9]; 9]);
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum CellWithConstraints {
+    Number(SudokuNum),
+    Constrained(ConstraintList),
+    Free,
+}
+
+impl fmt::Display for CellWithConstraints {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Constrained(cons) => write!(f, "{cons:?}"),
+            Self::Free => write!(f, "."),
+        }
+    }
+}
+
+impl BoardWithConstraints {
+    pub const fn new() -> Self {
+        Self([[CellWithConstraints::Free; 9]; 9])
     }
 }
 
@@ -285,6 +309,14 @@ impl From<u8> for SudokuNum {
     }
 }
 
+impl From<SudokuNum> for ConstraintList {
+    fn from(num: SudokuNum) -> Self {
+        let mut res = Self::empty();
+        res.insert(num);
+        res
+    }
+}
+
 #[derive(Hash, Copy, Clone, Eq, PartialEq)]
 pub struct ConstraintList(pub U9BitArray);
 
@@ -305,8 +337,15 @@ impl ConstraintList {
         self.0.count_ones() == 0
     }
 
-    pub const fn is_naked_single(self) -> bool {
-        self.len() == 1
+    pub fn naked_single(self) -> Option<SudokuNum> {
+        // PERF(Simon): maybe set hint to llvm that the first branch is far more likely
+        if self.len() != 1 {
+            return None;
+        }
+        let num = ((self.0.first_index() + 1) as u8)
+            .try_into()
+            .expect("failed to convert to sudoku number");
+        Some(num)
     }
 
     pub fn insert(&mut self, num: SudokuNum) {
@@ -329,11 +368,6 @@ impl ConstraintList {
         self.0 .0 & other.0 .0 == self.0 .0
     }
 
-    pub fn first(self) -> Option<SudokuNum> {
-        self.0
-            .first_index()
-            .map(|x| (x + 1).try_into().expect("failed to convert to sudoku number"))
-    }
     pub const fn len(self) -> u32 {
         self.0.count_ones()
     }
@@ -344,6 +378,11 @@ impl ConstraintList {
             bits: self.0 .0,
             current,
         }
+    }
+
+    #[inline]
+    pub const fn intersection(c0: Self, c1: Self, c2: Self) -> ConstraintList {
+        ConstraintList::from_raw_bits(c0.0 .0 & c1.0 .0 & c2.0 .0)
     }
 }
 
@@ -425,18 +464,10 @@ impl std::fmt::Debug for ConstraintList {
     }
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum Cell {
-    Number(SudokuNum),
-    Constrained(ConstraintList),
-    Free,
-}
-
 impl fmt::Display for Cell {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{n}"),
-            Self::Constrained(c) => write!(f, "{c:?}"),
             Self::Free => write!(f, "."),
         }
     }
@@ -483,6 +514,14 @@ impl fmt::Debug for Board {
     }
 }
 
+impl fmt::Debug for BoardWithConstraints {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let table = self.0.table().bold(true).display().unwrap();
+
+        write!(f, "\n{table}\n")
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[rustc_layout_scalar_valid_range_end(0b0000_00001_1111_1111)]
 #[rustc_layout_scalar_valid_range_start(0)]
@@ -522,8 +561,10 @@ impl U9BitArray {
     pub const fn count_ones(self) -> u32 {
         self.0.count_ones()
     }
-    pub fn first_index(self) -> Option<usize> {
-        (0..9).find(|&i| self.is_bit_set(i))
+    pub fn first_index(self) -> u32 {
+        assert_ne!(self.0, 0, "not bits set");
+        self.0.trailing_zeros()
+        // (0..9).find(|&i| self.is_bit_set(i))
     }
 }
 
@@ -586,18 +627,6 @@ mod test {
         list.insert(SudokuNum::One);
         assert!(list.contains(SudokuNum::One));
         assert!(!list.contains(SudokuNum::Two));
-    }
-
-    #[test]
-    fn test_constraint_list_first() {
-        let mut list = ConstraintList::empty();
-        assert_eq!(list.first(), None);
-
-        list.insert(SudokuNum::One);
-        assert_eq!(list.first(), Some(SudokuNum::One));
-
-        list.insert(SudokuNum::Two);
-        assert_eq!(list.first(), Some(SudokuNum::One));
     }
 
     #[test]

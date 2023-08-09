@@ -1,6 +1,10 @@
 use rustc_hash::FxHashMap;
+use std::assert_matches::*;
 
-use crate::board::{Board, BoardIter, Cell, ColIter, ConstraintList, RowIter, SquareIter, SudokuNum};
+use crate::board::{
+    Board, BoardIter, BoardWithConstraints, Cell, CellWithConstraints, ColIter, ConstraintList, RowIter, SquareIter,
+    SudokuNum,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub struct BoardNotSolvableError;
@@ -13,12 +17,19 @@ pub struct Solver {
     hidden_sets_square_cache: FxHashMap<ConstraintList, Vec<(usize, usize)>>,
 
     made_progress: bool,
-    // _col_missing: [ConstraintList; 9],
-    // _row_missing: [ConstraintList; 9],
-    // _square_missing: [ConstraintList; 9],
+
+    // most constraining value
+    mcv_candidate: (u8, Option<(usize, usize)>),
+
+    col_missing: [ConstraintList; 9],
+    row_missing: [ConstraintList; 9],
+    square_missing: [ConstraintList; 9],
 }
 
 impl Solver {
+    // because the are only 9 possible numbers in sudoku
+    const MAX_MCV_CANDIDATE_LEN: u8 = 9;
+
     pub fn new(board: Board) -> Self {
         Self {
             board,
@@ -27,21 +38,28 @@ impl Solver {
             hidden_sets_col_cache: FxHashMap::default(),
             hidden_sets_square_cache: FxHashMap::default(),
 
+            mcv_candidate: (Self::MAX_MCV_CANDIDATE_LEN, None),
+
             made_progress: false,
-            // _col_missing: std::array::from_fn(|_| ConstraintList::full()),
-            // _row_missing: std::array::from_fn(|_| ConstraintList::full()),
-            // _square_missing: std::array::from_fn(|_| ConstraintList::full()),
+            col_missing: [ConstraintList::full(); 9],
+            row_missing: [ConstraintList::full(); 9],
+            square_missing: [ConstraintList::full(); 9],
         }
     }
 
     pub fn solve(&mut self) -> Result<Board, BoardNotSolvableError> {
-        self.insert_initial_constraints();
         self.partially_propagate_constraints();
         self.solve_internal(0)
     }
 
+    fn dbg_missing(&self) {
+        dbg!(&self.row_missing);
+        dbg!(&self.col_missing);
+        dbg!(&self.square_missing);
+    }
+
     fn solve_internal(&mut self, depth: usize) -> Result<Board, BoardNotSolvableError> {
-        while !self.board.is_solved() && self.made_progress {
+        while !self.is_solved() && self.made_progress {
             self.made_progress = false;
             self.insert_naked_singles()?;
             self.compute_hidden_subsets();
@@ -52,10 +70,26 @@ impl Solver {
         self.solve_dfs(depth)
     }
 
+    fn is_solved(&self) -> bool {
+        if self.row_missing.iter().any(|c| !c.is_empty())
+            || self.col_missing.iter().any(|c| !c.is_empty())
+            || self.square_missing.iter().any(|c| !c.is_empty())
+        {
+            return false;
+        }
+        self.board.is_solved()
+    }
+
     fn solve_dfs(&mut self, depth: usize) -> Result<Board, BoardNotSolvableError> {
-        for (row_index, col_index) in BoardIter::new() {
+        if let Some((row_index, col_index)) = self.mcv_candidate.1 {
+            self.invalidate_mcv_candidate();
             let cell = &self.board.0[row_index][col_index];
-            if let Cell::Constrained(cons) = cell {
+            if *cell == Cell::Free {
+                let cons = self.constraints_at(row_index, col_index);
+                let old_row_missing = self.row_missing;
+                let old_col_missing = self.col_missing;
+                let old_square_misisng = self.square_missing;
+
                 for c in cons {
                     let old_board = self.board.clone();
                     self.insert_and_forward_propagate(c, row_index, col_index);
@@ -64,6 +98,34 @@ impl Solver {
                         Ok(board) => return Ok(board),
                         Err(BoardNotSolvableError) => {
                             self.board = old_board;
+                            self.row_missing = old_row_missing;
+                            self.col_missing = old_col_missing;
+                            self.square_missing = old_square_misisng;
+                        }
+                    }
+                }
+                return Err(BoardNotSolvableError);
+            }
+        }
+        for (row_index, col_index) in BoardIter::new() {
+            let cell = &self.board.0[row_index][col_index];
+            if *cell == Cell::Free {
+                let cons = self.constraints_at(row_index, col_index);
+                let old_row_missing = self.row_missing;
+                let old_col_missing = self.col_missing;
+                let old_square_misisng = self.square_missing;
+
+                for c in cons {
+                    let old_board = self.board.clone();
+                    self.insert_and_forward_propagate(c, row_index, col_index);
+
+                    match self.solve_internal(depth + 1) {
+                        Ok(board) => return Ok(board),
+                        Err(BoardNotSolvableError) => {
+                            self.board = old_board;
+                            self.row_missing = old_row_missing;
+                            self.col_missing = old_col_missing;
+                            self.square_missing = old_square_misisng;
                         }
                     }
                 }
@@ -73,18 +135,31 @@ impl Solver {
         Err(BoardNotSolvableError)
     }
 
+    fn invalidate_mcv_candidate(&mut self) {
+        self.mcv_candidate.0 = Self::MAX_MCV_CANDIDATE_LEN;
+        self.mcv_candidate.1 = None;
+    }
+
+    const fn constraints_at(&self, row_index: usize, col_index: usize) -> ConstraintList {
+        let square_index = Self::calculate_square_index(row_index, col_index);
+
+        let row_missing = self.row_missing[row_index];
+        let col_missing = self.col_missing[col_index];
+        let square_missing = self.square_missing[square_index];
+
+        ConstraintList::intersection(row_missing, col_missing, square_missing)
+    }
+
     fn insert_naked_singles(&mut self) -> Result<(), BoardNotSolvableError> {
         for (row_index, col_index) in BoardIter::new() {
             let cell = &self.board.0[row_index][col_index];
-            match cell {
-                Cell::Constrained(cons) if cons.is_empty() => {
+            if *cell == Cell::Free {
+                let cons = self.constraints_at(row_index, col_index);
+                if cons.is_empty() {
                     return Err(BoardNotSolvableError);
-                }
-                Cell::Constrained(cons) if cons.is_naked_single() => {
-                    let num = cons.first().unwrap();
+                } else if let Some(num) = cons.naked_single() {
                     self.insert_and_forward_propagate(num, row_index, col_index);
                 }
-                _ => continue,
             }
         }
         Ok(())
@@ -114,7 +189,8 @@ impl Solver {
                 self.clear_row_subset_cache();
                 for (row_index, col_index) in RowIter::new(i) {
                     let cell = &self.board.0[row_index][col_index];
-                    if let Cell::Constrained(cons) = cell {
+                    if *cell == Cell::Free {
+                        let cons = self.constraints_at(row_index, col_index);
                         for k in 1..=4 {
                             let subsets = cons.combinations(k);
                             for s in subsets {
@@ -127,7 +203,7 @@ impl Solver {
                         }
                     }
                 }
-                self.insert_from_hidden_singles_row_cache();
+                self.insert_constraints_from_hidden_sets_row_cache();
             }
 
             // hidden singles in columns
@@ -135,7 +211,8 @@ impl Solver {
                 self.clear_col_subset_cache();
                 for (row_index, col_index) in ColIter::new(i) {
                     let cell = &self.board.0[row_index][col_index];
-                    if let Cell::Constrained(cons) = cell {
+                    if *cell == Cell::Free {
+                        let cons = self.constraints_at(row_index, col_index);
                         for k in 1..=4 {
                             let subsets = cons.combinations(k);
                             for s in subsets {
@@ -148,7 +225,7 @@ impl Solver {
                         }
                     }
                 }
-                self.insert_from_hidden_singles_col_cache();
+                self.insert_constraints_from_hidden_sets_col_cache();
             }
 
             // hidden singles in squares
@@ -156,7 +233,8 @@ impl Solver {
                 self.clear_square_subset_cache();
                 for (row_index, col_index) in SquareIter::new(i) {
                     let cell = &self.board.0[row_index][col_index];
-                    if let Cell::Constrained(cons) = cell {
+                    if *cell == Cell::Free {
+                        let cons = self.constraints_at(row_index, col_index);
                         for k in 1..=4 {
                             let subsets = cons.combinations(k);
                             for s in subsets {
@@ -169,184 +247,60 @@ impl Solver {
                         }
                     }
                 }
-                self.insert_from_hidden_singles_square_cache();
+                self.insert_constraints_from_hidden_sets_square_cache();
             }
         }
     }
 
-    fn insert_from_hidden_singles_row_cache(&mut self) {
+    fn insert_constraints_from_hidden_sets_row_cache(&mut self) {
         unsafe {
             let this = self as *mut Self;
-            for (cons, occurrences) in &self.hidden_sets_row_cache {
-                if cons.len() > 1 && cons.len() as usize == occurrences.len() {
-                    // NOTE(Simon): check that we really are in the same row
-                    #[cfg(debug_assertions)]
-                    for w in occurrences.windows(2) {
-                        let (r0, _) = w[0];
-                        let (r1, _) = w[1];
-
-                        debug_assert_eq!(r0, r1);
-                    }
-
-                    let (row_index, col_index) = occurrences[0];
-                    for i in 0..9 {
-                        // remove the constraint for all the cells in the same row
-                        if let Cell::Constrained(mut old) = self.board.0[row_index][i] {
-                            old.remove_all(*cons);
-                        }
-
-                        // remove the constraint for all the cells in the same column
-                        if let Cell::Constrained(mut old) = self.board.0[i][col_index] {
-                            old.remove_all(*cons);
-                        }
-                    }
-
-                    for (row_index, col_index) in occurrences {
-                        // also remove from all the squares
-                        // we do this here because every cell from the occurrence list could be in different squares
-                        {
-                            let square_index = Self::calculate_square_index(*row_index, *col_index);
-                            for (row_index, col_index) in SquareIter::new(square_index) {
-                                if let Cell::Constrained(mut old) = self.board.0[row_index][col_index] {
-                                    old.remove_all(*cons);
-                                }
-                            }
-                        }
-
-                        // NOTE(Simon): the variable never read warning here makes me a bit suspicious
-                        #[allow(unused_variables)]
-                        #[allow(unused_assignments)]
-                        if let Cell::Constrained(mut old) = &mut (*this).board.0[*row_index][*col_index] {
-                            old = *cons;
-                        }
-                    }
-                }
-            }
-
-            // Insert hidden singles
-            // PERF(Simon): Maybe it is beneficial to first insert all hidden subsets with 2 =< k =< 4.
-            // PERF(Simon): This could allow us to find more hidden singles while forward propagation due to a reduced search space.
-            for (cons, occurrences) in &self.hidden_sets_row_cache {
-                if cons.is_naked_single() && occurrences.len() == 1 {
-                    let (row_index, col_index) = occurrences[0];
-                    let number = cons.first().unwrap();
-                    (*this).insert_and_forward_propagate(number, row_index, col_index);
-                }
-            }
+            Self::insert_constraints_from_hidden_sets_cache_raw(this, &self.hidden_sets_row_cache);
         }
     }
 
-    fn insert_from_hidden_singles_col_cache(&mut self) {
+    fn insert_constraints_from_hidden_sets_col_cache(&mut self) {
         unsafe {
             let this = self as *mut Self;
-            for (cons, occurrences) in &self.hidden_sets_col_cache {
-                if cons.len() > 1 && cons.len() as usize == occurrences.len() {
-                    // NOTE(Simon): check that we really are in the same row
-                    #[cfg(debug_assertions)]
-                    for w in occurrences.windows(2) {
-                        let (_, c0) = w[0];
-                        let (_, c1) = w[1];
-
-                        debug_assert_eq!(c0, c1);
-                    }
-
-                    let (row_index, col_index) = occurrences[0];
-                    for i in 0..9 {
-                        // remove the constraint for all the cells in the same row
-                        if let Cell::Constrained(mut old) = self.board.0[row_index][i] {
-                            old.remove_all(*cons);
-                        }
-
-                        // remove the constraint for all the cells in the same column
-                        if let Cell::Constrained(mut old) = self.board.0[i][col_index] {
-                            old.remove_all(*cons);
-                        }
-                    }
-
-                    for (row_index, col_index) in occurrences {
-                        // also remove from all the squares
-                        // we do this here because every cell from the occurrence list could be in different squares
-                        {
-                            let square_index = Self::calculate_square_index(*row_index, *col_index);
-                            for (row_index, col_index) in SquareIter::new(square_index) {
-                                if let Cell::Constrained(mut old) = self.board.0[row_index][col_index] {
-                                    old.remove_all(*cons);
-                                }
-                            }
-                        }
-
-                        // NOTE(Simon): the variable never read warning here makes me a bit suspicious
-                        #[allow(unused_variables)]
-                        #[allow(unused_assignments)]
-                        if let Cell::Constrained(mut old) = &mut (*this).board.0[*row_index][*col_index] {
-                            old = *cons;
-                        }
-                    }
-                }
-            }
-
-            // Insert hidden singles
-            // PERF(Simon): Maybe it is beneficial to first insert all hidden subsets with 2 =< k =< 4.
-            // PERF(Simon): This could allow us to find more hidden singles while forward propagation due to a reduced search space.
-            for (cons, occurrences) in &self.hidden_sets_col_cache {
-                if cons.is_naked_single() && occurrences.len() == 1 {
-                    let (row_index, col_index) = occurrences[0];
-                    let number = cons.first().unwrap();
-                    (*this).insert_and_forward_propagate(number, row_index, col_index);
-                }
-            }
+            Self::insert_constraints_from_hidden_sets_cache_raw(this, &self.hidden_sets_col_cache);
+        }
+    }
+    fn insert_constraints_from_hidden_sets_square_cache(&mut self) {
+        unsafe {
+            let this = self as *mut Self;
+            Self::insert_constraints_from_hidden_sets_cache_raw(this, &self.hidden_sets_square_cache);
         }
     }
 
-    fn insert_from_hidden_singles_square_cache(&mut self) {
-        unsafe {
-            let this = self as *mut Self;
-            for (cons, occurrences) in &self.hidden_sets_square_cache {
-                if cons.len() > 1 && cons.len() as usize == occurrences.len() {
-                    let (row_index, col_index) = occurrences[0];
-                    for i in 0..9 {
-                        // remove the constraint for all the cells in the same row
-                        if let Cell::Constrained(mut old) = self.board.0[row_index][i] {
-                            old.remove_all(*cons);
-                        }
-
-                        // remove the constraint for all the cells in the same column
-                        if let Cell::Constrained(mut old) = self.board.0[i][col_index] {
-                            old.remove_all(*cons);
-                        }
-                    }
-
-                    for (row_index, col_index) in occurrences {
-                        // also remove from all the squares
-                        // we do this here because every cell from the occurrence list could be in different squares
-                        {
-                            let square_index = Self::calculate_square_index(*row_index, *col_index);
-                            for (row_index, col_index) in SquareIter::new(square_index) {
-                                if let Cell::Constrained(mut old) = self.board.0[row_index][col_index] {
-                                    old.remove_all(*cons);
-                                }
-                            }
-                        }
-
-                        // NOTE(Simon): the variable never read warning here makes me a bit suspicious
-                        #[allow(unused_variables)]
-                        #[allow(unused_assignments)]
-                        if let Cell::Constrained(mut old) = &mut (*this).board.0[*row_index][*col_index] {
-                            old = *cons;
-                        }
-                    }
+    unsafe fn insert_constraints_from_hidden_sets_cache_raw(
+        this: *mut Self,
+        hidden_sets_cache: &FxHashMap<ConstraintList, Vec<(usize, usize)>>,
+    ) {
+        for (cons, occurrences) in hidden_sets_cache {
+            // we have found a subset of length `k` that is occurring exactly `k` times
+            if cons.len() > 1 && cons.len() as usize == occurrences.len() {
+                for (row_index, col_index) in occurrences {
+                    // also remove from all the squares
+                    // we do this here because every cell from the occurrence list could be in different squares
+                    // (*this).dbg_missing();
+                    // (*this).remove_all_cons_at_pos(*row_index, *col_index, *cons);
+                    // (*this).insert_cons_at_pos(*row_index, *col_index, *cons);
+                    // println!("we fucked up");
                 }
             }
+        }
 
-            // Insert hidden singles
-            // PERF(Simon): Maybe it is beneficial to first insert all hidden subsets with 2 =< k =< 4.
-            // PERF(Simon): This could allow us to find more hidden singles while forward propagation due to a reduced search space.
-            for (cons, occurrences) in &self.hidden_sets_square_cache {
-                if cons.is_naked_single() && occurrences.len() == 1 {
-                    let (row_index, col_index) = occurrences[0];
-                    let number = cons.first().unwrap();
-                    (*this).insert_and_forward_propagate(number, row_index, col_index);
-                }
+        // Insert hidden singles
+        // PERF(Simon): Maybe it is beneficial to first insert all hidden subsets with 2 =< k =< 4.
+        // PERF(Simon): This could allow us to find more hidden singles while forward propagation due to a reduced search space.
+        for (cons, occurrences) in hidden_sets_cache {
+            if let Some(num) = cons.naked_single() && occurrences.len() == 1 {
+                let (row_index, col_index) = occurrences[0];
+                // dbg!("pretty sure we are screwing up here");
+                // dbg!((*this).get_constrained_board());
+                // dbg!((num, row_index, col_index));
+                (*this).insert_and_forward_propagate(num, row_index, col_index);
+                // dbg!("ahhhh I was right");
             }
         }
     }
@@ -355,23 +309,23 @@ impl Solver {
         (row_index / 3) * 3 + col_index / 3
     }
 
-    pub fn insert_initial_constraints(&mut self) {
-        for row_index in 0..9 {
-            let mut possible_nums = ConstraintList::full();
-            for col_index in 0..9 {
-                let cell = &self.board.0[row_index][col_index];
-                if let Cell::Number(n) = &cell {
-                    possible_nums.remove(*n);
-                }
-            }
-            for col_index in 0..9 {
-                let cell = &mut self.board.0[row_index][col_index];
-                if Cell::Free == *cell {
-                    *cell = Cell::Constrained(possible_nums);
-                }
-            }
-        }
+    fn remove_all_cons_at_pos(&mut self, row_index: usize, col_index: usize, to_remove: ConstraintList) {
+        let square_index = Self::calculate_square_index(row_index, col_index);
+
+        self.row_missing[row_index].remove_all(to_remove);
+        self.col_missing[col_index].remove_all(to_remove);
+        self.square_missing[square_index].remove_all(to_remove);
     }
+
+    fn remove_cons_at_pos(&mut self, row_index: usize, col_index: usize, to_remove: SudokuNum) {
+        let square_index = Self::calculate_square_index(row_index, col_index);
+
+        self.row_missing[row_index].remove(to_remove);
+        self.col_missing[col_index].remove(to_remove);
+        self.square_missing[square_index].remove(to_remove);
+    }
+
+    fn insert_cons_at_pos(&mut self, row_index: usize, col_index: usize, to_insert: ConstraintList) {}
 
     // propagate constraints
     pub fn partially_propagate_constraints(&mut self) {
@@ -380,6 +334,7 @@ impl Solver {
         self.partially_propagate_square_constraints();
     }
 
+    // PERF(Simon): this is essentially duplicate work if called after `insert_initial_constraints`
     fn partially_propagate_row_constraints(&mut self) {
         for row_index in 0..9 {
             let mut found_nums = ConstraintList::empty();
@@ -390,12 +345,7 @@ impl Solver {
                 }
             }
 
-            for (row_index, col_index) in RowIter::new(row_index) {
-                let cell = &mut self.board.0[row_index][col_index];
-                if let Cell::Constrained(cons) = cell {
-                    cons.remove_all(found_nums);
-                }
-            }
+            self.row_missing[row_index].remove_all(found_nums);
         }
     }
     fn partially_propagate_col_constraints(&mut self) {
@@ -407,12 +357,7 @@ impl Solver {
                     found_nums.insert(*n);
                 }
             }
-            for (row_index, col_index) in ColIter::new(col_index) {
-                let cell = &mut self.board.0[row_index][col_index];
-                if let Cell::Constrained(cons) = cell {
-                    cons.remove_all(found_nums);
-                }
-            }
+            self.col_missing[col_index].remove_all(found_nums);
         }
     }
     fn partially_propagate_square_constraints(&mut self) {
@@ -424,50 +369,68 @@ impl Solver {
                     found_nums.insert(*n);
                 }
             }
-            for (row_index, col_index) in SquareIter::new(square_index) {
-                let cell = &mut self.board.0[row_index][col_index];
-                if let Cell::Constrained(cons) = cell {
-                    cons.remove_all(found_nums);
-                }
-            }
+            self.square_missing[square_index].remove_all(found_nums);
         }
     }
 
     fn insert_and_forward_propagate(&mut self, num: SudokuNum, row_index: usize, col_index: usize) {
+        #[cfg(debug_assertions)]
+        {
+            let cons = self.constraints_at(row_index, col_index);
+            debug_assert!(
+                cons.contains(num),
+                "the placement of a number has to be at least partially valid",
+            );
+            let cell = self.board.0[row_index][col_index];
+            dbg!((row_index, col_index, num));
+            debug_assert_matches!(cell, Cell::Free);
+        }
+
         self.board.0[row_index][col_index] = Cell::Number(num);
         self.made_progress = true;
 
+        self.remove_cons_at_pos(row_index, col_index, num);
+
+        // PERF(Simon): Maybe we can fuse these loops to avoid doing duplicate iteration over the same data
+        // PERF(Simon): I'm not sure the compiler is smart enough to do this optimization on it's own.
         for (row_index, col_index) in RowIter::new(row_index) {
             let cell = &mut self.board.0[row_index][col_index];
-            if let Cell::Constrained(cons) = cell {
-                cons.remove(num);
-                if cons.is_naked_single() {
-                    let n = cons.first().unwrap();
-                    self.insert_and_forward_propagate(n, row_index, col_index);
+            if *cell == Cell::Free {
+                let cons = self.constraints_at(row_index, col_index);
+                self.maybe_update_mcv_candidate(row_index, col_index, cons.len() as u8);
+                if let Some(num) = cons.naked_single() {
+                    self.insert_and_forward_propagate(num, row_index, col_index);
                 }
             }
         }
 
         for (row_index, col_index) in ColIter::new(col_index) {
             let cell = &mut self.board.0[row_index][col_index];
-            if let Cell::Constrained(cons) = cell {
-                cons.remove(num);
-                if cons.is_naked_single() {
-                    let n = cons.first().unwrap();
-                    self.insert_and_forward_propagate(n, row_index, col_index);
+            if *cell == Cell::Free {
+                let cons = self.constraints_at(row_index, col_index);
+                if let Some(num) = cons.naked_single() {
+                    self.insert_and_forward_propagate(num, row_index, col_index);
                 }
             }
         }
+
         let square_index = Self::calculate_square_index(row_index, col_index);
         for (row_index, col_index) in SquareIter::new(square_index) {
             let cell = &mut self.board.0[row_index][col_index];
-            if let Cell::Constrained(cons) = cell {
-                cons.remove(num);
-                if cons.is_naked_single() {
-                    let n = cons.first().unwrap();
-                    self.insert_and_forward_propagate(n, row_index, col_index);
+            if *cell == Cell::Free {
+                let cons = self.constraints_at(row_index, col_index);
+                if let Some(num) = cons.naked_single() {
+                    self.insert_and_forward_propagate(num, row_index, col_index);
                 }
             }
+        }
+    }
+
+    #[inline]
+    fn maybe_update_mcv_candidate(&mut self, row_index: usize, col_index: usize, proposed_len: u8) {
+        let candidate_len = self.mcv_candidate.0;
+        if proposed_len < candidate_len {
+            self.mcv_candidate = (proposed_len, Some((row_index, col_index)));
         }
     }
 
@@ -478,14 +441,34 @@ impl Solver {
             let needle = &other.0[row_index][col_index];
             match (cell, needle) {
                 (Cell::Number(n1), Cell::Number(n2)) if n1 == n2 => continue,
-                (Cell::Constrained(cons), Cell::Number(n)) if cons.contains(*n) => continue,
-                (Cell::Constrained(c1), Cell::Constrained(c2)) if c1.contains_all(*c2) => continue,
+                (Cell::Free, Cell::Number(n)) => {
+                    let cons = self.constraints_at(row_index, col_index);
+                    if cons.contains(*n) {
+                        continue;
+                    }
+                }
                 (_, _) => {
                     is_subset = false;
                 }
             }
         }
         is_subset
+    }
+
+    pub fn get_constrained_board(&self) -> BoardWithConstraints {
+        let mut new_board = BoardWithConstraints::new();
+        for (row_index, col_index) in BoardIter::new() {
+            let old_cell = self.board.0[row_index][col_index];
+            let new_cell = match old_cell {
+                Cell::Number(n) => CellWithConstraints::Number(n),
+                Cell::Free => {
+                    let cons = self.constraints_at(row_index, col_index);
+                    CellWithConstraints::Constrained(cons)
+                }
+            };
+            new_board.0[row_index][col_index] = new_cell;
+        }
+        new_board
     }
 }
 
@@ -534,30 +517,23 @@ mod tests {
             vec!['.', '.', '.', '.', '8', '.', '.', '7', '9'],
         ]);
         let mut solver = Solver::new(test_board);
-        solver.insert_initial_constraints();
         solver.partially_propagate_constraints();
         solver.insert_and_forward_propagate(SudokuNum::Three, 8, 0);
 
         assert_eq!(solver.board.0[8][0], Cell::Number(SudokuNum::Three));
         for (row_index, col_index) in RowIter::new(8) {
-            let cell = &solver.board.0[row_index][col_index];
-            if let Cell::Constrained(cons) = cell {
-                assert_eq!(cons.contains(SudokuNum::Three), false);
-            }
+            let cons = solver.constraints_at(row_index, col_index);
+            assert_eq!(cons.contains(SudokuNum::Three), false);
         }
 
         for (row_index, col_index) in ColIter::new(0) {
-            let cell = &solver.board.0[row_index][col_index];
-            if let Cell::Constrained(cons) = cell {
-                assert_eq!(cons.contains(SudokuNum::Three), false);
-            }
+            let cons = solver.constraints_at(row_index, col_index);
+            assert_eq!(cons.contains(SudokuNum::Three), false);
         }
 
         for (row_index, col_index) in SquareIter::new(6) {
-            let cell = &solver.board.0[row_index][col_index];
-            if let Cell::Constrained(cons) = cell {
-                assert_eq!(cons.contains(SudokuNum::Three), false);
-            }
+            let cons = solver.constraints_at(row_index, col_index);
+            assert_eq!(cons.contains(SudokuNum::Three), false);
         }
     }
 
@@ -592,6 +568,10 @@ mod tests {
         let res = solver.solve();
         dbg!(&solver.board);
         dbg!(&solver.is_subset(&test_board_solution));
+        dbg!(&solver.get_constrained_board());
+        dbg!(&solver.row_missing);
+        dbg!(&solver.col_missing);
+        dbg!(&solver.square_missing);
         assert_matches!(res, Ok(b) if b.is_solved() && b == test_board_solution)
     }
 

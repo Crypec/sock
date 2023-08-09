@@ -5,11 +5,14 @@ edition = "2021"
 
 [profile.release]
 debug = true
+#codegen-units = 1
+#lto = "fat"
 
 [dependencies]
 cli-table = "0.4.7"
-nohash-hasher = "0.2.0"
-num-traits = "0.2.15"
+# egui = "0.22.0"
+# nohash-hasher = "0.2.0"
+# num-traits = "0.2.15"
 rayon = "1.7.0"
 rustc-hash = "1.1.0"
-termion = "2.0.1"
+# termion = "2.0.1"

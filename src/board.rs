@@ -3,7 +3,7 @@
 
 use cli_table::{Style, Table};
 use std::fmt;
-use std::ops::Index;
+// use std::ops::Index;
 
 #[derive(Hash, Clone, Eq, PartialEq)]
 pub struct Board(pub [[Cell; 9]; 9]);
@@ -70,6 +70,7 @@ impl Board {
     }
 }
 
+/*
 impl Index<BoardIndex> for Board {
     type Output = Cell;
     fn index(&self, index: BoardIndex) -> &Self::Output {
@@ -87,6 +88,7 @@ impl BoardIndex {
         Self(index)
     }
 }
+*/
 
 const MIDDLE_OF_SQUARE_INDEXES: [(usize, usize); 9] =
     [(1, 1), (1, 4), (1, 7), (4, 1), (4, 4), (4, 7), (7, 1), (7, 4), (7, 7)];
@@ -270,7 +272,7 @@ impl TryFrom<usize> for SudokuNum {
             7 => Ok(Self::Seven),
             8 => Ok(Self::Eight),
             9 => Ok(Self::Nine),
-            _ => panic!("failed to convert `{number}` to suduku number!"),
+            _ => Err(InvalidSudokuNumError),
         }
     }
 }
@@ -533,7 +535,7 @@ impl std::fmt::Debug for U9BitArray {
 
 #[cfg(test)]
 mod test {
-    use crate::*;
+    use super::*;
 
     #[test]
     fn test_constraint_list_full() {
@@ -574,7 +576,7 @@ mod test {
     fn test_constraint_list_remove_all() {
         let mut list1 = ConstraintList::full();
         let list2 = ConstraintList(U9BitArray::new(0b_0000_0000_0000_1111));
-        list1.remove_all(&list2);
+        list1.remove_all(list2);
         assert_eq!(list1.0 .0, 0b_0000_0001_1111_0000);
     }
 
@@ -801,5 +803,52 @@ mod test {
         let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
 
         assert_eq!(results, vec![]);
+    }
+
+    #[test]
+    fn board_not_solved_empty_cells() {
+        let codegolf = parse_board(vec![
+            vec!['.', '.', '.', '7', '.', '.', '.', '.', '.'],
+            vec!['1', '.', '.', '.', '.', '.', '.', '.', '.'],
+            vec!['.', '.', '.', '4', '3', '.', '2', '.', '.'],
+            vec!['.', '.', '.', '.', '.', '.', '.', '.', '6'],
+            vec!['.', '.', '.', '5', '.', '9', '.', '.', '.'],
+            vec!['.', '.', '.', '.', '.', '.', '4', '1', '8'],
+            vec!['.', '.', '.', '.', '8', '1', '.', '.', '.'],
+            vec!['.', '.', '2', '.', '.', '.', '.', '5', '.'],
+            vec!['.', '4', '.', '.', '.', '.', '3', '.', '.'],
+        ]);
+        assert_eq!(codegolf.is_solved(), false);
+    }
+    #[test]
+    fn board_not_solved_1() {
+        let board = parse_board(vec![
+            vec!['9', '3', '4', '6', '7', '8', '9', '1', '2'],
+            vec!['6', '7', '2', '1', '9', '5', '3', '4', '8'],
+            vec!['1', '9', '8', '3', '4', '2', '5', '6', '7'],
+            vec!['8', '5', '9', '7', '6', '1', '4', '2', '3'],
+            vec!['4', '2', '6', '8', '5', '3', '7', '9', '1'],
+            vec!['7', '1', '3', '9', '2', '4', '8', '5', '6'],
+            vec!['9', '6', '1', '5', '3', '7', '2', '8', '4'],
+            vec!['2', '8', '7', '4', '1', '9', '6', '3', '5'],
+            vec!['3', '4', '5', '2', '8', '6', '1', '7', '5'],
+        ]);
+        assert_eq!(board.is_solved(), false);
+    }
+
+    #[test]
+    fn board_is_solved_2() {
+        let board = parse_board(vec![
+            vec!['5', '3', '4', '6', '7', '8', '9', '1', '2'],
+            vec!['6', '7', '2', '1', '9', '5', '3', '4', '8'],
+            vec!['1', '9', '8', '3', '4', '2', '5', '6', '7'],
+            vec!['8', '5', '9', '7', '6', '1', '4', '2', '3'],
+            vec!['4', '2', '6', '8', '5', '3', '7', '9', '1'],
+            vec!['7', '1', '3', '9', '2', '4', '8', '5', '6'],
+            vec!['9', '6', '1', '5', '3', '7', '2', '8', '4'],
+            vec!['2', '8', '7', '4', '1', '9', '6', '3', '5'],
+            vec!['3', '4', '5', '2', '8', '6', '1', '7', '9'],
+        ]);
+        assert_eq!(board.is_solved(), true);
     }
 }

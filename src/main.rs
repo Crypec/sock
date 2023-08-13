@@ -5,13 +5,13 @@
 #![feature(rustc_attrs)]
 #![feature(associated_type_bounds)]
 #![feature(assert_matches)]
-#![allow(dead_code)]
-#![allow(clippy::module_name_repetitions)]
+#![feature(test)]
 
 // #![warn(clippy::restriction)]
 
 use crate::board::{parse_char_to_sudoku_num, Board, Cell};
 use crate::solver::Solver;
+use rayon::prelude::*;
 use std::assert_matches::assert_matches;
 
 mod board;
@@ -39,21 +39,15 @@ fn parse_board_from_line(line: &str) -> Board {
 }
 
 fn main() {
-    let test_data = std::fs::read_to_string("/home/simon/Code/sock/test_data.txt").unwrap();
+    let test_data = std::fs::read_to_string("test_data.txt").unwrap();
     let boards = parse_boards_list(&test_data);
 
     let now = std::time::Instant::now();
-    #[allow(clippy::needless_range_loop)]
-    for i in 0..=1000 {
-        let board = boards[i].clone();
-        let mut solver = Solver::new(board.clone());
-        let now = std::time::Instant::now();
-        println!("{i}");
-        let status = solver.solve();
-        dbg!(&solver.board);
-        println!("{i} :: in {:?}", now.elapsed());
-        assert_matches!(status, Ok(b) if b.is_solved());
-    }
+    boards.into_par_iter().for_each(|board| {
+        let solver = Solver::new(board);
+        let res = solver.solve();
+        assert_matches!(res, Ok(b) if b.is_solved());
+    });
 
     println!("took :: {:?}", now.elapsed());
 }

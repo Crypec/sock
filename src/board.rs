@@ -3,8 +3,10 @@
 
 use cli_table::{Style, Table};
 use std::fmt;
+use std::ops::Index;
 // use std::ops::Index;
 
+// stores the row_index in the upper 4 bits and the col_index in the lower 4 bits
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
 pub struct BoardIndex(u8);
 
@@ -19,6 +21,8 @@ pub struct Board(pub [[Cell; 9]; 9]);
 
 impl Board {
     /// A `Board` is `solved` when all the rows, columns and houses contain the numbers from 1 to 9
+
+    #[inline(always)]
     pub fn is_solved(&self) -> bool {
         for i in 0..9 {
             // check if all the numbers are present in the rows
@@ -53,7 +57,7 @@ impl Board {
             // check if all the numbers are present in the squares
             {
                 let mut required_nums = ConstraintList::full();
-                for (row_index, col_index) in SquareIter::new(i) {
+                for (row_index, col_index) in BoxIter::new(i) {
                     let cell = self.0[row_index][col_index];
                     if let Cell::Number(n) = cell {
                         required_nums.remove(n);
@@ -94,12 +98,11 @@ impl BoardWithConstraints {
     }
 }
 
-/*
 impl Index<BoardIndex> for Board {
     type Output = Cell;
     fn index(&self, index: BoardIndex) -> &Self::Output {
-        let row_index = ((index.0 & 0b1111_0000) >> 4) as usize;
-        let col_index = (index.0 & 0b1111_0000) as usize;
+        let row_index = ((index.0 & 0b_1111_0000) >> 4) as usize;
+        let col_index = (index.0 & 0b_0000_1111) as usize;
         assert!(row_index <= 8 && col_index <= 8);
         &self.0[row_index][col_index]
     }
@@ -112,7 +115,6 @@ impl BoardIndex {
         Self(index)
     }
 }
-*/
 
 const MIDDLE_OF_SQUARE_INDEXES: [(usize, usize); 9] =
     [(1, 1), (1, 4), (1, 7), (4, 1), (4, 4), (4, 7), (7, 1), (7, 4), (7, 7)];
@@ -145,6 +147,8 @@ impl BoardIter {
 
 impl Iterator for BoardIter {
     type Item = (usize, usize);
+
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.row_index >= 9 {
             return None;
@@ -177,6 +181,7 @@ impl RowIter {
 impl Iterator for RowIter {
     type Item = (usize, usize);
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let cursor = self.cursor;
         self.cursor += 1;
@@ -204,6 +209,7 @@ impl ColIter {
 impl Iterator for ColIter {
     type Item = (usize, usize);
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let cursor = self.cursor;
         self.cursor += 1;
@@ -216,13 +222,13 @@ impl Iterator for ColIter {
     }
 }
 
-pub struct SquareIter {
+pub struct BoxIter {
     row_index: usize,
     col_index: usize,
     cursor: usize,
 }
 
-impl SquareIter {
+impl BoxIter {
     pub const fn new(square: usize) -> Self {
         debug_assert!(square <= 8);
         let (row_index, col_index) = MIDDLE_OF_SQUARE_INDEXES[square];
@@ -234,7 +240,7 @@ impl SquareIter {
     }
 }
 
-impl Iterator for SquareIter {
+impl Iterator for BoxIter {
     type Item = (usize, usize);
 
     #[allow(clippy::cast_sign_loss)]
@@ -255,7 +261,7 @@ impl Iterator for SquareIter {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::EnumCount)]
 pub enum SudokuNum {
     One = 1,
     Two = 2,
@@ -334,7 +340,7 @@ impl ConstraintList {
     }
 
     pub const fn is_empty(self) -> bool {
-        self.0.count_ones() == 0
+        self.len() == 0
     }
 
     pub fn naked_single(self) -> Option<SudokuNum> {
@@ -360,17 +366,19 @@ impl ConstraintList {
         self.0.mask(other.0);
     }
 
+    #[inline(always)]
     pub const fn contains(self, needle: SudokuNum) -> bool {
         self.0.is_bit_set((needle as usize) - 1)
     }
 
     pub const fn contains_all(self, other: Self) -> bool {
-        self.0 .0 & other.0 .0 == self.0 .0
+        self.0 .0 & other.0 .0 == other.0 .0
     }
 
     pub const fn len(self) -> u32 {
         self.0.count_ones()
     }
+
     pub const fn combinations(self, k: u8) -> CombinationsIter {
         let current = (1 << k) - 1;
         CombinationsIter {
@@ -380,9 +388,9 @@ impl ConstraintList {
         }
     }
 
-    #[inline]
-    pub const fn intersection(c0: Self, c1: Self, c2: Self) -> ConstraintList {
-        ConstraintList::from_raw_bits(c0.0 .0 & c1.0 .0 & c2.0 .0)
+    #[inline(always)]
+    pub const fn intersection(c0: Self, c1: Self, c2: Self) -> Self {
+        Self::from_raw_bits(c0.0 .0 & c1.0 .0 & c2.0 .0)
     }
 }
 
@@ -395,6 +403,7 @@ pub struct CombinationsIter {
 impl Iterator for CombinationsIter {
     type Item = ConstraintList;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         while self.current <= self.bits {
             if self.current & self.bits == self.current && self.current.count_ones() == self.k.into() {
@@ -419,6 +428,8 @@ pub struct ConstraintListIter {
 
 impl Iterator for ConstraintListIter {
     type Item = SudokuNum;
+
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let cursor = self.cursor;
@@ -540,6 +551,7 @@ impl U9BitArray {
         }
     }
 
+    #[inline(always)]
     pub const fn is_bit_set(self, index: usize) -> bool {
         assert!(index <= 9, "index out of range");
         self.0 & (1 << index) != 0
@@ -564,7 +576,6 @@ impl U9BitArray {
     pub fn first_index(self) -> u32 {
         assert_ne!(self.0, 0, "not bits set");
         self.0.trailing_zeros()
-        // (0..9).find(|&i| self.is_bit_set(i))
     }
 }
 
@@ -577,6 +588,7 @@ impl std::fmt::Debug for U9BitArray {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::assert_matches::assert_matches;
 
     #[test]
     fn test_constraint_list_full() {
@@ -600,10 +612,36 @@ mod test {
     }
 
     #[test]
+    fn test_naked_singles_full() {
+        let list = ConstraintList::full();
+        assert_matches!(list.naked_single(), None);
+    }
+
+    #[test]
+    fn test_naked_singles_empty() {
+        let list = ConstraintList::empty();
+        assert_matches!(list.naked_single(), None);
+    }
+
+    #[test]
     fn test_constraint_list_insert() {
         let mut list = ConstraintList::empty();
         list.insert(SudokuNum::One);
         assert_eq!(list.0 .0, 0b_0000_0000_0000_0001);
+    }
+
+    #[test]
+    fn test_constraint_list_naked_single_1() {
+        let mut list = ConstraintList::empty();
+        list.insert(SudokuNum::One);
+        assert_matches!(list.naked_single(), Some(SudokuNum::One));
+    }
+
+    #[test]
+    fn test_constraint_list_naked_single_2() {
+        let mut list = ConstraintList::from_raw_bits(0b_0000_0000_0010_0010);
+        list.insert(SudokuNum::One);
+        assert_matches!(list.naked_single(), None);
     }
 
     #[test]
@@ -630,6 +668,23 @@ mod test {
     }
 
     #[test]
+    fn test_constraint_list_contains_all() {
+        let mut list = ConstraintList::empty();
+        list.insert(SudokuNum::One);
+        assert!(list.contains(SudokuNum::One));
+        assert!(!list.contains(SudokuNum::Two));
+
+        let full = ConstraintList::full();
+        assert!(!list.contains_all(full));
+
+        let sparse = ConstraintList::from_raw_bits(0b_0000_0001_0010_1110);
+        assert!(sparse.contains_all(ConstraintList::from_raw_bits(0b_0000_0001_0010_1110)));
+
+        let subset = ConstraintList::from_raw_bits(0b_0000_0001_0010_1110);
+        assert!(!subset.contains_all(ConstraintList::from_raw_bits(0b_0000_0001_1110_1110)));
+    }
+
+    #[test]
     fn test_constraint_list_len() {
         let mut list = ConstraintList::empty();
         assert_eq!(list.len(), 0);
@@ -639,6 +694,36 @@ mod test {
 
         list.insert(SudokuNum::Two);
         assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn test_intersection_empty() {
+        let c0 = ConstraintList::empty();
+        let c1 = ConstraintList::empty();
+        let c2 = ConstraintList::empty();
+
+        assert_eq!(ConstraintList::intersection(c0, c1, c2), ConstraintList::empty())
+    }
+
+    #[test]
+    fn test_intersection_full() {
+        let c0 = ConstraintList::full();
+        let c1 = ConstraintList::full();
+        let c2 = ConstraintList::full();
+
+        assert_eq!(ConstraintList::intersection(c0, c1, c2), ConstraintList::full())
+    }
+
+    #[test]
+    fn test_intersection_1() {
+        let c0 = ConstraintList::from_raw_bits(0b_0000_0001_1100_0101);
+        let c1 = ConstraintList::from_raw_bits(0b_0000_0000_1000_0101);
+        let c2 = ConstraintList::from_raw_bits(0b_0000_0001_1000_0100);
+
+        assert_eq!(
+            ConstraintList::intersection(c0, c1, c2),
+            ConstraintList::from_raw_bits(0b_0000_0000_1000_0100)
+        );
     }
 
     #[test]
@@ -661,7 +746,7 @@ mod test {
 
     #[test]
     fn test_square_iter() {
-        let mut iter = SquareIter::new(4); // middle square
+        let mut iter = BoxIter::new(4); // middle square
         let expected = [(3, 3), (3, 4), (3, 5), (4, 3), (4, 4), (4, 5), (5, 3), (5, 4), (5, 5)];
         for &pos in &expected {
             assert_eq!(iter.next(), Some(pos));
@@ -834,6 +919,13 @@ mod test {
         assert_eq!(results, vec![]);
     }
 
+    #[test]
+    fn test_constraint_list_iter() {
+        let it = ConstraintList::from_raw_bits(0b0000_0000_1001_1000).into_iter();
+        let results = it.collect::<Vec<SudokuNum>>();
+
+        assert_eq!(results, vec![SudokuNum::Four, SudokuNum::Five, SudokuNum::Eight]);
+    }
     #[test]
     fn board_not_solved_empty_cells() {
         let codegolf = parse_board(vec![

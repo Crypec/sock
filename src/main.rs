@@ -6,6 +6,7 @@
 #![feature(associated_type_bounds)]
 #![feature(assert_matches)]
 #![feature(test)]
+#![allow(dead_code)]
 
 // #![warn(clippy::restriction)]
 
@@ -16,6 +17,10 @@ use std::assert_matches::assert_matches;
 
 mod board;
 mod solver;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 fn parse_boards_list(raw: &str) -> Vec<Board> {
     raw.lines().skip(1).map(parse_board_from_line).collect()
@@ -39,15 +44,33 @@ fn parse_board_from_line(line: &str) -> Board {
 }
 
 fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     let test_data = std::fs::read_to_string("test_data.txt").unwrap();
     let boards = parse_boards_list(&test_data);
 
     let now = std::time::Instant::now();
-    boards.into_par_iter().for_each(|board| {
-        let solver = Solver::new(board);
-        let res = solver.solve();
-        assert_matches!(res, Ok(b) if b.is_solved());
-    });
+
+    #[cfg(not(feature = "no-jobs"))]
+    {
+        boards.into_par_iter().for_each(|board| {
+            let solver = Solver::new(board);
+            let res = solver.solve();
+            assert_matches!(res, Ok(b) if b.is_solved());
+        });
+    }
+
+    #[cfg(feature = "no-jobs")]
+    {
+        for board in boards {
+            let solver = Solver::new(board);
+            let res = solver.solve();
+
+            assert_matches!(res, Ok(b) if b.is_solved());
+        }
+    }
 
     println!("took :: {:?}", now.elapsed());
+    println!("size of Solver: {} bytes", std::mem::size_of::<Solver>());
 }

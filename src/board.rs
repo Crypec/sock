@@ -3,12 +3,18 @@
 
 use cli_table::{Style, Table};
 use std::fmt;
-use std::ops::Index;
+use std::ops::{Index, IndexMut};
 // use std::ops::Index;
 
 // stores the row_index in the upper 4 bits and the col_index in the lower 4 bits
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
 pub struct BoardIndex(u8);
+
+#[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
+pub struct BigBoardIndex {
+    pub row_index: usize,
+    pub col_index: usize,
+}
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Cell {
@@ -22,14 +28,13 @@ pub struct Board(pub [[Cell; 9]; 9]);
 impl Board {
     /// A `Board` is `solved` when all the rows, columns and houses contain the numbers from 1 to 9
 
-    #[inline(always)]
     pub fn is_solved(&self) -> bool {
         for i in 0..9 {
             // check if all the numbers are present in the rows
             {
                 let mut required_nums = ConstraintList::full();
-                for (row_index, col_index) in RowIter::new(i) {
-                    let cell = self.0[row_index][col_index];
+                for index in RowIter::new(i) {
+                    let cell = self[index];
                     match cell {
                         Cell::Number(n) => required_nums.remove(n),
                         Cell::Free => return false,
@@ -43,8 +48,8 @@ impl Board {
             // check if all the numbers are present in the columns
             {
                 let mut required_nums = ConstraintList::full();
-                for (row_index, col_index) in ColIter::new(i) {
-                    let cell = self.0[row_index][col_index];
+                for index in ColIter::new(i) {
+                    let cell = self[index];
                     if let Cell::Number(n) = cell {
                         required_nums.remove(n);
                     }
@@ -57,8 +62,8 @@ impl Board {
             // check if all the numbers are present in the squares
             {
                 let mut required_nums = ConstraintList::full();
-                for (row_index, col_index) in BoxIter::new(i) {
-                    let cell = self.0[row_index][col_index];
+                for index in BoxIter::new(i) {
+                    let cell = self[index];
                     if let Cell::Number(n) = cell {
                         required_nums.remove(n);
                     }
@@ -93,6 +98,7 @@ impl fmt::Display for CellWithConstraints {
 }
 
 impl BoardWithConstraints {
+    #[inline(always)]
     pub const fn new() -> Self {
         Self([[CellWithConstraints::Free; 9]; 9])
     }
@@ -100,17 +106,39 @@ impl BoardWithConstraints {
 
 impl Index<BoardIndex> for Board {
     type Output = Cell;
+
     fn index(&self, index: BoardIndex) -> &Self::Output {
         let row_index = ((index.0 & 0b_1111_0000) >> 4) as usize;
         let col_index = (index.0 & 0b_0000_1111) as usize;
-        assert!(row_index <= 8 && col_index <= 8);
-        &self.0[row_index][col_index]
+        debug_assert!(row_index <= 8 && col_index <= 8);
+        unsafe { self.0.get_unchecked(row_index).get_unchecked(col_index) }
+    }
+}
+
+impl Index<BigBoardIndex> for Board {
+    type Output = Cell;
+
+    #[inline(always)]
+    fn index(&self, index: BigBoardIndex) -> &Self::Output {
+        unsafe { self.0.get_unchecked(index.row_index).get_unchecked(index.col_index) }
+    }
+}
+
+impl IndexMut<BigBoardIndex> for Board {
+    #[inline(always)]
+    fn index_mut(&mut self, index: BigBoardIndex) -> &mut Self::Output {
+        unsafe {
+            self.0
+                .get_unchecked_mut(index.row_index)
+                .get_unchecked_mut(index.col_index)
+        }
     }
 }
 
 impl BoardIndex {
+    #[inline]
     pub const fn new(row_index: u8, col_index: u8) -> Self {
-        assert!(row_index <= 8 && col_index <= 8);
+        debug_assert!(row_index <= 8 && col_index <= 8);
         let index = (row_index << 4) | col_index;
         Self(index)
     }
@@ -146,15 +174,14 @@ impl BoardIter {
 }
 
 impl Iterator for BoardIter {
-    type Item = (usize, usize);
+    type Item = BigBoardIndex;
 
-    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.row_index >= 9 {
             return None;
         }
 
-        let result = Some((self.row_index, self.col_index));
+        let result = BigBoardIndex::new(self.row_index, self.col_index);
 
         self.col_index += 1;
         if self.col_index >= 9 {
@@ -162,7 +189,14 @@ impl Iterator for BoardIter {
             self.row_index += 1;
         }
 
-        result
+        Some(result)
+    }
+}
+
+impl BigBoardIndex {
+    #[inline(always)]
+    pub const fn new(row_index: usize, col_index: usize) -> Self {
+        Self { row_index, col_index }
     }
 }
 
@@ -179,9 +213,8 @@ impl RowIter {
 }
 
 impl Iterator for RowIter {
-    type Item = (usize, usize);
+    type Item = BigBoardIndex;
 
-    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let cursor = self.cursor;
         self.cursor += 1;
@@ -190,7 +223,7 @@ impl Iterator for RowIter {
             return None;
         }
 
-        Some((self.row, cursor))
+        Some(BigBoardIndex::new(self.row, cursor))
     }
 }
 
@@ -207,9 +240,8 @@ impl ColIter {
 }
 
 impl Iterator for ColIter {
-    type Item = (usize, usize);
+    type Item = BigBoardIndex;
 
-    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let cursor = self.cursor;
         self.cursor += 1;
@@ -218,7 +250,7 @@ impl Iterator for ColIter {
             return None;
         }
 
-        Some((cursor, self.col))
+        Some(BigBoardIndex::new(cursor, self.col))
     }
 }
 
@@ -241,7 +273,7 @@ impl BoxIter {
 }
 
 impl Iterator for BoxIter {
-    type Item = (usize, usize);
+    type Item = BigBoardIndex;
 
     #[allow(clippy::cast_sign_loss)]
     #[allow(clippy::cast_possible_wrap)]
@@ -257,7 +289,7 @@ impl Iterator for BoxIter {
         let row_index = ((self.row_index as isize) + row_offset) as usize;
         let col_index = ((self.col_index as isize) + col_offset) as usize;
 
-        Some((row_index, col_index))
+        Some(BigBoardIndex::new(row_index, col_index))
     }
 }
 
@@ -275,6 +307,7 @@ pub enum SudokuNum {
 }
 
 impl std::cmp::PartialEq<u8> for SudokuNum {
+    #[inline(always)]
     fn eq(&self, other: &u8) -> bool {
         (*self as u8) == *other
     }
@@ -291,6 +324,8 @@ pub struct InvalidSudokuNumError;
 
 impl TryFrom<usize> for SudokuNum {
     type Error = InvalidSudokuNumError;
+
+    #[inline(always)]
     fn try_from(number: usize) -> Result<Self, InvalidSudokuNumError> {
         match number {
             1 => Ok(Self::One),
@@ -308,6 +343,7 @@ impl TryFrom<usize> for SudokuNum {
 }
 
 impl From<u8> for SudokuNum {
+    #[inline(always)]
     fn from(number: u8) -> Self {
         (number as usize)
             .try_into()
@@ -316,6 +352,7 @@ impl From<u8> for SudokuNum {
 }
 
 impl From<SudokuNum> for ConstraintList {
+    #[inline(always)]
     fn from(num: SudokuNum) -> Self {
         let mut res = Self::empty();
         res.insert(num);
@@ -327,22 +364,27 @@ impl From<SudokuNum> for ConstraintList {
 pub struct ConstraintList(pub U9BitArray);
 
 impl ConstraintList {
+    #[inline(always)]
     pub const fn full() -> Self {
         Self(U9BitArray::new(0b_0000_0001_1111_1111))
     }
 
+    #[inline(always)]
     pub const fn empty() -> Self {
         Self(U9BitArray::new(0b_0000_0000_0000_0000))
     }
 
+    #[inline(always)]
     const fn from_raw_bits(raw: u16) -> Self {
         Self(U9BitArray::new(raw))
     }
 
+    #[inline(always)]
     pub const fn is_empty(self) -> bool {
         self.len() == 0
     }
 
+    #[inline(always)]
     pub fn naked_single(self) -> Option<SudokuNum> {
         // PERF(Simon): maybe set hint to llvm that the first branch is far more likely
         if self.len() != 1 {
@@ -354,14 +396,17 @@ impl ConstraintList {
         Some(num)
     }
 
+    #[inline(always)]
     pub fn insert(&mut self, num: SudokuNum) {
         self.0.set_bit((num as u8) - 1);
     }
 
+    #[inline(always)]
     pub fn remove(&mut self, num: SudokuNum) {
         self.0.clear_bit((num as u8) - 1);
     }
 
+    #[inline(always)]
     pub fn remove_all(&mut self, other: Self) {
         self.0.mask(other.0);
     }
@@ -371,14 +416,17 @@ impl ConstraintList {
         self.0.is_bit_set((needle as usize) - 1)
     }
 
+    #[inline(always)]
     pub const fn contains_all(self, other: Self) -> bool {
         self.0 .0 & other.0 .0 == other.0 .0
     }
 
+    #[inline(always)]
     pub const fn len(self) -> u32 {
         self.0.count_ones()
     }
 
+    #[inline(always)]
     pub const fn combinations(self, k: u8) -> CombinationsIter {
         let current = (1 << k) - 1;
         CombinationsIter {
@@ -403,10 +451,10 @@ pub struct CombinationsIter {
 impl Iterator for CombinationsIter {
     type Item = ConstraintList;
 
-    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         while self.current <= self.bits {
-            if self.current & self.bits == self.current && self.current.count_ones() == self.k.into() {
+            let k: u32 = self.k.into();
+            if self.current & self.bits == self.current && self.current.count_ones() == k {
                 let result = self.current;
                 let tmp = self.current & (!self.current + 1);
                 let mobile = self.current + tmp;
@@ -429,7 +477,6 @@ pub struct ConstraintListIter {
 impl Iterator for ConstraintListIter {
     type Item = SudokuNum;
 
-    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let cursor = self.cursor;
@@ -539,11 +586,13 @@ impl fmt::Debug for BoardWithConstraints {
 pub struct U9BitArray(u16);
 
 impl U9BitArray {
+    #[inline(always)]
     pub const fn new(value: u16) -> Self {
-        assert!(value <= 0b0000_0001_1111_1111);
+        debug_assert!(value <= 0b0000_0001_1111_1111);
         unsafe { Self(value) }
     }
 
+    #[inline(always)]
     pub fn set_bit(&mut self, index: u8) {
         assert!(index <= 9, "index out of range");
         unsafe {
@@ -557,6 +606,7 @@ impl U9BitArray {
         self.0 & (1 << index) != 0
     }
 
+    #[inline(always)]
     pub fn clear_bit(&mut self, index: u8) {
         assert!(index <= 9, "index out of range");
         unsafe {
@@ -564,15 +614,19 @@ impl U9BitArray {
         }
     }
 
+    #[inline(always)]
     pub fn mask(&mut self, other: Self) {
         unsafe {
             self.0 &= !other.0;
         }
     }
 
+    #[inline(always)]
     pub const fn count_ones(self) -> u32 {
         self.0.count_ones()
     }
+
+    #[inline(always)]
     pub fn first_index(self) -> u32 {
         assert_ne!(self.0, 0, "not bits set");
         self.0.trailing_zeros()
@@ -589,6 +643,8 @@ impl std::fmt::Debug for U9BitArray {
 mod test {
     use super::*;
     use std::assert_matches::assert_matches;
+
+    type BoardIndex = BigBoardIndex;
 
     #[test]
     fn test_constraint_list_full() {
@@ -730,7 +786,7 @@ mod test {
     fn test_row_iter() {
         let mut iter = RowIter::new(5);
         for i in 0..9 {
-            assert_eq!(iter.next(), Some((5, i)));
+            assert_eq!(iter.next(), Some(BoardIndex::new(5, i)));
         }
         assert_eq!(iter.next(), None);
     }
@@ -739,7 +795,7 @@ mod test {
     fn test_col_iter() {
         let mut iter = ColIter::new(5);
         for i in 0..9 {
-            assert_eq!(iter.next(), Some((i, 5)));
+            assert_eq!(iter.next(), Some(BoardIndex::new(i, 5)));
         }
         assert_eq!(iter.next(), None);
     }
@@ -749,7 +805,8 @@ mod test {
         let mut iter = BoxIter::new(4); // middle square
         let expected = [(3, 3), (3, 4), (3, 5), (4, 3), (4, 4), (4, 5), (5, 3), (5, 4), (5, 5)];
         for &pos in &expected {
-            assert_eq!(iter.next(), Some(pos));
+            let index = BoardIndex::new(pos.0, pos.1);
+            assert_eq!(iter.next(), Some(index));
         }
         assert_eq!(iter.next(), None);
     }
@@ -759,11 +816,12 @@ mod test {
         let mut iter = BoardIter::new();
         for row in 0..9 {
             for col in 0..9 {
-                assert_eq!(iter.next(), Some((row, col)));
+                assert_eq!(iter.next(), Some(BoardIndex::new(row, col)));
             }
         }
         assert_eq!(iter.next(), None);
     }
+
     #[test]
     fn test_combinations_iter() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1011);

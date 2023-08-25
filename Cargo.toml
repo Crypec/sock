@@ -8,12 +8,22 @@ debug = true
 codegen-units = 1
 lto = "fat"
 
+[features]
+default = []
+dhat-heap = []
+dhat-ad-hoc = []
+no-jobs = []
+parallel = []
+small-run = ["no-jobs"]
+
 [dependencies]
 cli-table = "0.4.7"
+dhat = "0.3.2"
 # egui = "0.22.0"
 # nohash-hasher = "0.2.0"
 # num-traits = "0.2.15"
 rayon = "1.7.0"
 rustc-hash = "1.1.0"
 strum = { version = "0.25.0", features = ["derive"]}
+unroll = { version = "0.1.5", features = ["unstable"] }
 # termion = "2.0.1"

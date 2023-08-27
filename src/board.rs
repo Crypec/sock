@@ -6,22 +6,6 @@ use std::fmt;
 use std::ops::{Index, IndexMut};
 // use std::ops::Index;
 
-// stores the row_index in the upper 4 bits and the col_index in the lower 4 bits
-#[derive(Debug, Hash, Clone, Eq, PartialEq)]
-pub struct BoardIndex(u8);
-
-#[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
-pub struct BigBoardIndex {
-    pub row_index: usize,
-    pub col_index: usize,
-}
-
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum Cell {
-    Number(SudokuNum),
-    Free,
-}
-
 #[derive(Clone, Eq, PartialEq)]
 pub struct Board(pub [[Cell; 9]; 9]);
 
@@ -78,7 +62,79 @@ impl Board {
     }
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum Cell {
+    Number(SudokuNum),
+    Free,
+}
+
+// stores the row_index in the upper 4 bits and the col_index in the lower 4 bits
+#[derive(Debug, Hash, Clone, Eq, PartialEq)]
+pub struct BoardIndex(u8);
+
+impl BoardIndex {
+    #[inline]
+    pub const fn new(row_index: u8, col_index: u8) -> Self {
+        debug_assert!(row_index <= 8 && col_index <= 8);
+        let index = (row_index << 4) | col_index;
+        Self(index)
+    }
+}
+
+impl Index<BoardIndex> for Board {
+    type Output = Cell;
+
+    fn index(&self, index: BoardIndex) -> &Self::Output {
+        let row_index = ((index.0 & 0b_1111_0000) >> 4) as usize;
+        let col_index = (index.0 & 0b_0000_1111) as usize;
+        debug_assert!(row_index <= 8 && col_index <= 8);
+        unsafe { self.0.get_unchecked(row_index).get_unchecked(col_index) }
+    }
+}
+
+#[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
+pub struct BigBoardIndex {
+    pub row_index: usize,
+    pub col_index: usize,
+}
+
+impl BigBoardIndex {
+    #[inline(always)]
+    pub const fn new(row_index: usize, col_index: usize) -> Self {
+        Self { row_index, col_index }
+    }
+}
+
+impl Index<BigBoardIndex> for Board {
+    type Output = Cell;
+
+    #[inline(always)]
+    fn index(&self, index: BigBoardIndex) -> &Self::Output {
+        debug_assert!(index.row_index <= 8 && index.col_index <= 8);
+        unsafe { self.0.get_unchecked(index.row_index).get_unchecked(index.col_index) }
+    }
+}
+
+impl IndexMut<BigBoardIndex> for Board {
+    #[inline(always)]
+    fn index_mut(&mut self, index: BigBoardIndex) -> &mut Self::Output {
+        debug_assert!(index.row_index <= 8 && index.col_index <= 8);
+        unsafe {
+            self.0
+                .get_unchecked_mut(index.row_index)
+                .get_unchecked_mut(index.col_index)
+        }
+    }
+}
+
 pub struct BoardWithConstraints(pub [[CellWithConstraints; 9]; 9]);
+
+impl BoardWithConstraints {
+    #[inline(always)]
+    pub const fn new() -> Self {
+        Self([[CellWithConstraints::Free; 9]; 9])
+    }
+}
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum CellWithConstraints {
@@ -94,202 +150,6 @@ impl fmt::Display for CellWithConstraints {
             Self::Constrained(cons) => write!(f, "{cons:?}"),
             Self::Free => write!(f, "."),
         }
-    }
-}
-
-impl BoardWithConstraints {
-    #[inline(always)]
-    pub const fn new() -> Self {
-        Self([[CellWithConstraints::Free; 9]; 9])
-    }
-}
-
-impl Index<BoardIndex> for Board {
-    type Output = Cell;
-
-    fn index(&self, index: BoardIndex) -> &Self::Output {
-        let row_index = ((index.0 & 0b_1111_0000) >> 4) as usize;
-        let col_index = (index.0 & 0b_0000_1111) as usize;
-        debug_assert!(row_index <= 8 && col_index <= 8);
-        unsafe { self.0.get_unchecked(row_index).get_unchecked(col_index) }
-    }
-}
-
-impl Index<BigBoardIndex> for Board {
-    type Output = Cell;
-
-    #[inline(always)]
-    fn index(&self, index: BigBoardIndex) -> &Self::Output {
-        unsafe { self.0.get_unchecked(index.row_index).get_unchecked(index.col_index) }
-    }
-}
-
-impl IndexMut<BigBoardIndex> for Board {
-    #[inline(always)]
-    fn index_mut(&mut self, index: BigBoardIndex) -> &mut Self::Output {
-        unsafe {
-            self.0
-                .get_unchecked_mut(index.row_index)
-                .get_unchecked_mut(index.col_index)
-        }
-    }
-}
-
-impl BoardIndex {
-    #[inline]
-    pub const fn new(row_index: u8, col_index: u8) -> Self {
-        debug_assert!(row_index <= 8 && col_index <= 8);
-        let index = (row_index << 4) | col_index;
-        Self(index)
-    }
-}
-
-const MIDDLE_OF_SQUARE_INDEXES: [(usize, usize); 9] =
-    [(1, 1), (1, 4), (1, 7), (4, 1), (4, 4), (4, 7), (7, 1), (7, 4), (7, 7)];
-
-const MIDDLE_OF_SQUARE_OFFSETS: [(isize, isize); 9] = [
-    (-1, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, -1),
-    (0, 0),
-    (0, 1),
-    (1, -1),
-    (1, 0),
-    (1, 1),
-];
-
-pub struct BoardIter {
-    row_index: usize,
-    col_index: usize,
-}
-
-impl BoardIter {
-    pub const fn new() -> Self {
-        Self {
-            row_index: 0,
-            col_index: 0,
-        }
-    }
-}
-
-impl Iterator for BoardIter {
-    type Item = BigBoardIndex;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.row_index >= 9 {
-            return None;
-        }
-
-        let result = BigBoardIndex::new(self.row_index, self.col_index);
-
-        self.col_index += 1;
-        if self.col_index >= 9 {
-            self.col_index = 0;
-            self.row_index += 1;
-        }
-
-        Some(result)
-    }
-}
-
-impl BigBoardIndex {
-    #[inline(always)]
-    pub const fn new(row_index: usize, col_index: usize) -> Self {
-        Self { row_index, col_index }
-    }
-}
-
-pub struct RowIter {
-    row: usize,
-    cursor: usize,
-}
-
-impl RowIter {
-    pub const fn new(row: usize) -> Self {
-        debug_assert!(row <= 8);
-        Self { row, cursor: 0 }
-    }
-}
-
-impl Iterator for RowIter {
-    type Item = BigBoardIndex;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let cursor = self.cursor;
-        self.cursor += 1;
-
-        if cursor > 8 {
-            return None;
-        }
-
-        Some(BigBoardIndex::new(self.row, cursor))
-    }
-}
-
-pub struct ColIter {
-    col: usize,
-    cursor: usize,
-}
-
-impl ColIter {
-    pub const fn new(col: usize) -> Self {
-        debug_assert!(col <= 8);
-        Self { col, cursor: 0 }
-    }
-}
-
-impl Iterator for ColIter {
-    type Item = BigBoardIndex;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let cursor = self.cursor;
-        self.cursor += 1;
-
-        if cursor > 8 {
-            return None;
-        }
-
-        Some(BigBoardIndex::new(cursor, self.col))
-    }
-}
-
-pub struct BoxIter {
-    row_index: usize,
-    col_index: usize,
-    cursor: usize,
-}
-
-impl BoxIter {
-    pub const fn new(square: usize) -> Self {
-        debug_assert!(square <= 8);
-        let (row_index, col_index) = MIDDLE_OF_SQUARE_INDEXES[square];
-        Self {
-            row_index,
-            col_index,
-            cursor: 0,
-        }
-    }
-}
-
-impl Iterator for BoxIter {
-    type Item = BigBoardIndex;
-
-    #[allow(clippy::cast_sign_loss)]
-    #[allow(clippy::cast_possible_wrap)]
-    fn next(&mut self) -> Option<Self::Item> {
-        let cursor = self.cursor;
-        self.cursor += 1;
-
-        if cursor >= MIDDLE_OF_SQUARE_INDEXES.len() {
-            return None;
-        }
-
-        let (row_offset, col_offset) = MIDDLE_OF_SQUARE_OFFSETS[cursor];
-        let row_index = ((self.row_index as isize) + row_offset) as usize;
-        let col_index = ((self.col_index as isize) + col_offset) as usize;
-
-        Some(BigBoardIndex::new(row_index, col_index))
     }
 }
 
@@ -442,6 +302,223 @@ impl ConstraintList {
     }
 }
 
+impl fmt::Debug for Board {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let table = self.0.table().bold(true).display().unwrap();
+
+        write!(f, "\n{table}\n")
+    }
+}
+
+impl fmt::Debug for BoardWithConstraints {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let table = self.0.table().bold(true).display().unwrap();
+
+        write!(f, "\n{table}\n")
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[rustc_layout_scalar_valid_range_end(0b0000_00001_1111_1111)]
+#[rustc_layout_scalar_valid_range_start(0)]
+pub struct U9BitArray(u16);
+
+impl U9BitArray {
+    #[inline(always)]
+    pub const fn new(value: u16) -> Self {
+        debug_assert!(value <= 0b0000_0001_1111_1111);
+        unsafe { Self(value) }
+    }
+
+    #[inline(always)]
+    pub fn set_bit(&mut self, index: u8) {
+        assert!(index <= 9, "index out of range");
+        unsafe {
+            self.0 |= 1 << index;
+        }
+    }
+
+    #[inline(always)]
+    pub const fn is_bit_set(self, index: usize) -> bool {
+        assert!(index <= 9, "index out of range");
+        self.0 & (1 << index) != 0
+    }
+
+    #[inline(always)]
+    pub fn clear_bit(&mut self, index: u8) {
+        assert!(index <= 9, "index out of range");
+        unsafe {
+            self.0 &= !(1 << index);
+        }
+    }
+
+    #[inline(always)]
+    pub fn mask(&mut self, other: Self) {
+        unsafe {
+            self.0 &= !other.0;
+        }
+    }
+
+    #[inline(always)]
+    pub const fn count_ones(self) -> u32 {
+        self.0.count_ones()
+    }
+
+    #[inline(always)]
+    pub fn first_index(self) -> u32 {
+        assert_ne!(self.0, 0, "not bits set");
+        self.0.trailing_zeros()
+    }
+}
+
+impl std::fmt::Debug for U9BitArray {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:016b}", self.0)
+    }
+}
+
+const MIDDLE_OF_SQUARE_INDEXES: [(usize, usize); 9] =
+    [(1, 1), (1, 4), (1, 7), (4, 1), (4, 4), (4, 7), (7, 1), (7, 4), (7, 7)];
+
+const MIDDLE_OF_SQUARE_OFFSETS: [(isize, isize); 9] = [
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, -1),
+    (0, 0),
+    (0, 1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+];
+
+pub struct BoardIter {
+    row_index: usize,
+    col_index: usize,
+}
+
+impl BoardIter {
+    pub const fn new() -> Self {
+        Self {
+            row_index: 0,
+            col_index: 0,
+        }
+    }
+}
+
+impl Iterator for BoardIter {
+    type Item = BigBoardIndex;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.row_index >= 9 {
+            return None;
+        }
+
+        let result = BigBoardIndex::new(self.row_index, self.col_index);
+
+        self.col_index += 1;
+        if self.col_index >= 9 {
+            self.col_index = 0;
+            self.row_index += 1;
+        }
+
+        Some(result)
+    }
+}
+
+pub struct RowIter {
+    row: usize,
+    cursor: usize,
+}
+
+impl RowIter {
+    pub const fn new(row: usize) -> Self {
+        debug_assert!(row <= 8);
+        Self { row, cursor: 0 }
+    }
+}
+
+impl Iterator for RowIter {
+    type Item = BigBoardIndex;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cursor = self.cursor;
+        self.cursor += 1;
+
+        if cursor > 8 {
+            return None;
+        }
+
+        Some(BigBoardIndex::new(self.row, cursor))
+    }
+}
+
+pub struct ColIter {
+    col: usize,
+    cursor: usize,
+}
+
+impl ColIter {
+    pub const fn new(col: usize) -> Self {
+        debug_assert!(col <= 8);
+        Self { col, cursor: 0 }
+    }
+}
+
+impl Iterator for ColIter {
+    type Item = BigBoardIndex;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cursor = self.cursor;
+        self.cursor += 1;
+
+        if cursor > 8 {
+            return None;
+        }
+
+        Some(BigBoardIndex::new(cursor, self.col))
+    }
+}
+
+pub struct BoxIter {
+    row_index: usize,
+    col_index: usize,
+    cursor: usize,
+}
+
+impl BoxIter {
+    pub const fn new(square: usize) -> Self {
+        debug_assert!(square <= 8);
+        let (row_index, col_index) = MIDDLE_OF_SQUARE_INDEXES[square];
+        Self {
+            row_index,
+            col_index,
+            cursor: 0,
+        }
+    }
+}
+
+impl Iterator for BoxIter {
+    type Item = BigBoardIndex;
+
+    #[allow(clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_wrap)]
+    fn next(&mut self) -> Option<Self::Item> {
+        let cursor = self.cursor;
+        self.cursor += 1;
+
+        if cursor >= MIDDLE_OF_SQUARE_INDEXES.len() {
+            return None;
+        }
+
+        let (row_offset, col_offset) = MIDDLE_OF_SQUARE_OFFSETS[cursor];
+        let row_index = ((self.row_index as isize) + row_offset) as usize;
+        let col_index = ((self.col_index as isize) + col_offset) as usize;
+
+        Some(BigBoardIndex::new(row_index, col_index))
+    }
+}
+
 pub struct CombinationsIter {
     k: u8,
     bits: u16,
@@ -561,81 +638,6 @@ pub fn parse_char_to_sudoku_num(c: char) -> SudokuNum {
         '8' => SudokuNum::Eight,
         '9' => SudokuNum::Nine,
         _ => unreachable!("failed to parse char to sudoku number"),
-    }
-}
-
-impl fmt::Debug for Board {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let table = self.0.table().bold(true).display().unwrap();
-
-        write!(f, "\n{table}\n")
-    }
-}
-
-impl fmt::Debug for BoardWithConstraints {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let table = self.0.table().bold(true).display().unwrap();
-
-        write!(f, "\n{table}\n")
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[rustc_layout_scalar_valid_range_end(0b0000_00001_1111_1111)]
-#[rustc_layout_scalar_valid_range_start(0)]
-pub struct U9BitArray(u16);
-
-impl U9BitArray {
-    #[inline(always)]
-    pub const fn new(value: u16) -> Self {
-        debug_assert!(value <= 0b0000_0001_1111_1111);
-        unsafe { Self(value) }
-    }
-
-    #[inline(always)]
-    pub fn set_bit(&mut self, index: u8) {
-        assert!(index <= 9, "index out of range");
-        unsafe {
-            self.0 |= 1 << index;
-        }
-    }
-
-    #[inline(always)]
-    pub const fn is_bit_set(self, index: usize) -> bool {
-        assert!(index <= 9, "index out of range");
-        self.0 & (1 << index) != 0
-    }
-
-    #[inline(always)]
-    pub fn clear_bit(&mut self, index: u8) {
-        assert!(index <= 9, "index out of range");
-        unsafe {
-            self.0 &= !(1 << index);
-        }
-    }
-
-    #[inline(always)]
-    pub fn mask(&mut self, other: Self) {
-        unsafe {
-            self.0 &= !other.0;
-        }
-    }
-
-    #[inline(always)]
-    pub const fn count_ones(self) -> u32 {
-        self.0.count_ones()
-    }
-
-    #[inline(always)]
-    pub fn first_index(self) -> u32 {
-        assert_ne!(self.0, 0, "not bits set");
-        self.0.trailing_zeros()
-    }
-}
-
-impl std::fmt::Debug for U9BitArray {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:016b}", self.0)
     }
 }
 

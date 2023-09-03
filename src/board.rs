@@ -6,7 +6,7 @@ use std::fmt;
 use std::ops::{Index, IndexMut};
 // use std::ops::Index;
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Board(pub [[Cell; 9]; 9]);
 
 impl Board {
@@ -649,19 +649,19 @@ mod test {
     type BoardIndex = BigBoardIndex;
 
     #[test]
-    fn test_constraint_list_full() {
+    fn constraint_list_full() {
         let list = ConstraintList::full();
         assert_eq!(list.0 .0, 0b_0000_0001_1111_1111);
     }
 
     #[test]
-    fn test_constraint_list_empty() {
+    fn constraint_list_empty() {
         let list = ConstraintList::empty();
         assert_eq!(list.0 .0, 0b_0000_0000_0000_0000);
     }
 
     #[test]
-    fn test_constraint_list_is_empty() {
+    fn constraint_list_is_empty() {
         let mut list = ConstraintList::empty();
         assert!(list.is_empty());
 
@@ -670,47 +670,47 @@ mod test {
     }
 
     #[test]
-    fn test_naked_singles_full() {
+    fn naked_singles_full() {
         let list = ConstraintList::full();
         assert_matches!(list.naked_single(), None);
     }
 
     #[test]
-    fn test_naked_singles_empty() {
+    fn naked_singles_empty() {
         let list = ConstraintList::empty();
         assert_matches!(list.naked_single(), None);
     }
 
     #[test]
-    fn test_constraint_list_insert() {
+    fn constraint_list_insert() {
         let mut list = ConstraintList::empty();
         list.insert(SudokuNum::One);
         assert_eq!(list.0 .0, 0b_0000_0000_0000_0001);
     }
 
     #[test]
-    fn test_constraint_list_naked_single_1() {
+    fn constraint_list_naked_single_1() {
         let mut list = ConstraintList::empty();
         list.insert(SudokuNum::One);
         assert_matches!(list.naked_single(), Some(SudokuNum::One));
     }
 
     #[test]
-    fn test_constraint_list_naked_single_2() {
+    fn constraint_list_naked_single_2() {
         let mut list = ConstraintList::from_raw_bits(0b_0000_0000_0010_0010);
         list.insert(SudokuNum::One);
         assert_matches!(list.naked_single(), None);
     }
 
     #[test]
-    fn test_constraint_list_remove() {
+    fn constraint_list_remove() {
         let mut list = ConstraintList::full();
         list.remove(SudokuNum::One);
         assert_eq!(list.0 .0, 0b_0000_0001_1111_1110);
     }
 
     #[test]
-    fn test_constraint_list_remove_all() {
+    fn constraint_list_remove_all() {
         let mut list1 = ConstraintList::full();
         let list2 = ConstraintList(U9BitArray::new(0b_0000_0000_0000_1111));
         list1.remove_all(list2);
@@ -718,7 +718,7 @@ mod test {
     }
 
     #[test]
-    fn test_constraint_list_contains() {
+    fn constraint_list_contains() {
         let mut list = ConstraintList::empty();
         list.insert(SudokuNum::One);
         assert!(list.contains(SudokuNum::One));
@@ -726,7 +726,7 @@ mod test {
     }
 
     #[test]
-    fn test_constraint_list_contains_all() {
+    fn constraint_list_contains_all() {
         let mut list = ConstraintList::empty();
         list.insert(SudokuNum::One);
         assert!(list.contains(SudokuNum::One));
@@ -743,7 +743,7 @@ mod test {
     }
 
     #[test]
-    fn test_constraint_list_len() {
+    fn constraint_list_len() {
         let mut list = ConstraintList::empty();
         assert_eq!(list.len(), 0);
 
@@ -755,7 +755,7 @@ mod test {
     }
 
     #[test]
-    fn test_intersection_empty() {
+    fn intersection_empty() {
         let c0 = ConstraintList::empty();
         let c1 = ConstraintList::empty();
         let c2 = ConstraintList::empty();
@@ -764,7 +764,7 @@ mod test {
     }
 
     #[test]
-    fn test_intersection_full() {
+    fn intersection_full() {
         let c0 = ConstraintList::full();
         let c1 = ConstraintList::full();
         let c2 = ConstraintList::full();
@@ -773,7 +773,7 @@ mod test {
     }
 
     #[test]
-    fn test_intersection_1() {
+    fn intersection_1() {
         let c0 = ConstraintList::from_raw_bits(0b_0000_0001_1100_0101);
         let c1 = ConstraintList::from_raw_bits(0b_0000_0000_1000_0101);
         let c2 = ConstraintList::from_raw_bits(0b_0000_0001_1000_0100);
@@ -785,7 +785,7 @@ mod test {
     }
 
     #[test]
-    fn test_row_iter() {
+    fn row_iter() {
         let mut iter = RowIter::new(5);
         for i in 0..9 {
             assert_eq!(iter.next(), Some(BoardIndex::new(5, i)));
@@ -794,7 +794,7 @@ mod test {
     }
 
     #[test]
-    fn test_col_iter() {
+    fn col_iter() {
         let mut iter = ColIter::new(5);
         for i in 0..9 {
             assert_eq!(iter.next(), Some(BoardIndex::new(i, 5)));
@@ -803,7 +803,7 @@ mod test {
     }
 
     #[test]
-    fn test_square_iter() {
+    fn square_iter() {
         let mut iter = BoxIter::new(4); // middle square
         let expected = [(3, 3), (3, 4), (3, 5), (4, 3), (4, 4), (4, 5), (5, 3), (5, 4), (5, 5)];
         for &pos in &expected {
@@ -814,7 +814,7 @@ mod test {
     }
 
     #[test]
-    fn test_indices_iter() {
+    fn indices_iter() {
         let mut iter = BoardIter::new();
         for row in 0..9 {
             for col in 0..9 {
@@ -825,7 +825,7 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter() {
+    fn combinations_iter() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1011);
         let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
 
@@ -841,7 +841,7 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_single_bit() {
+    fn combinations_iter_single_bit() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1000);
         let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
 
@@ -850,13 +850,13 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_no_bits() {
+    fn combinations_iter_no_bits() {
         let mut iter = ConstraintList::from_raw_bits(0b0000_0000_0000_0000).combinations(1);
 
         assert_eq!(iter.next(), None);
     }
     #[test]
-    fn test_combinations_iter_k3() {
+    fn combinations_iter_k3() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1111);
         let results = cons.combinations(3).collect::<Vec<ConstraintList>>();
 
@@ -873,7 +873,7 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_k4() {
+    fn combinations_iter_k4() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1111);
         let results = cons.combinations(4).collect::<Vec<ConstraintList>>();
 
@@ -882,7 +882,7 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_k1_multiple_bits() {
+    fn combinations_iter_k1_multiple_bits() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1111);
         let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
 
@@ -898,7 +898,7 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_k1_full() {
+    fn combinations_iter_k1_full() {
         let cons = ConstraintList::full();
         let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
 
@@ -919,7 +919,7 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_k1_single_bit_high() {
+    fn combinations_iter_k1_single_bit_high() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_1000_0000);
         let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
 
@@ -927,13 +927,13 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_k1_no_bits_high() {
+    fn combinations_iter_k1_no_bits_high() {
         let mut iter = ConstraintList::from_raw_bits(0b0000_0000_0000_0000).combinations(1);
 
         assert_eq!(iter.next(), None);
     }
     #[test]
-    fn test_combinations_iter_k2_multiple_bits() {
+    fn combinations_iter_k2_multiple_bits() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_0001_1111);
         let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
 
@@ -957,7 +957,7 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_k2_single_bit_high() {
+    fn combinations_iter_k2_single_bit_high() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_1000_0001);
         let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
 
@@ -965,14 +965,14 @@ mod test {
     }
 
     #[test]
-    fn test_combinations_iter_k2_no_bits_high() {
+    fn combinations_iter_k2_no_bits_high() {
         let mut iter = ConstraintList::from_raw_bits(0b0000_0000_0000_0000).combinations(2);
 
         assert_eq!(iter.next(), None);
     }
 
     #[test]
-    fn test_combinations_iter_k2_single_bit() {
+    fn combinations_iter_k2_single_bit() {
         let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1000);
         let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
 
@@ -980,7 +980,7 @@ mod test {
     }
 
     #[test]
-    fn test_constraint_list_iter() {
+    fn constraint_list_iter() {
         let it = ConstraintList::from_raw_bits(0b0000_0000_1001_1000).into_iter();
         let results = it.collect::<Vec<SudokuNum>>();
 

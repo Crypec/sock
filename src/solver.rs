@@ -1,5 +1,4 @@
 use rustc_hash::FxHashMap;
-use std::assert_matches::*;
 use strum::EnumCount;
 
 use crate::board::{
@@ -297,8 +296,7 @@ impl Solver {
         let old_entry = hidden_singles_entry_list[num_index];
         let new_entry = match old_entry {
             HiddenSingleEntry::None => HiddenSingleEntry::One(index),
-            HiddenSingleEntry::One(..) => HiddenSingleEntry::Many,
-            HiddenSingleEntry::Many => HiddenSingleEntry::Many,
+            HiddenSingleEntry::One(..) | HiddenSingleEntry::Many => HiddenSingleEntry::Many,
         };
         hidden_singles_entry_list[num_index] = new_entry;
     }
@@ -455,7 +453,7 @@ impl Solver {
         for (cons, occurrences) in hidden_sets_cache {
             // we have found a subset of length `k` that is occurring exactly `k` times
             if cons.len() > 1 && cons.len() as usize == occurrences.len() {
-                for index in occurrences {
+                for _index in occurrences {
                     // also remove from all the boxes
                     // we do this here because every cell from the occurrence list could be in different squares
                     // (*this).dbg_missing();
@@ -550,6 +548,7 @@ impl Solver {
     fn insert_and_forward_propagate(&mut self, number: SudokuNum, index: BoardIndex, origin: tracing::Origin) {
         #[cfg(debug_assertions)]
         {
+            use std::assert_matches::*;
             let cons = self.constraints_at(index);
             // dbg!(cons);
             // dbg!(self.get_constrained_board());
@@ -870,19 +869,5 @@ mod test {
         let solver = Solver::new(hard_leetcode);
         let res = solver.solve();
         assert_matches!(res, Ok(b) if b.is_solved() && b == hard_leetcode_solution);
-    }
-
-    fn solver() {
-        // let mut _codegolf = parse_board(vec![
-        //     vec!['.', '.', '.', '7', '.', '.', '.', '.', '.'],
-        //     vec!['1', '.', '.', '.', '.', '.', '.', '.', '.'],
-        //     vec!['.', '.', '.', '4', '3', '.', '2', '.', '.'],
-        //     vec!['.', '.', '.', '.', '.', '.', '.', '.', '6'],
-        //     vec!['.', '.', '.', '5', '.', '9', '.', '.', '.'],
-        //     vec!['.', '.', '.', '.', '.', '.', '4', '1', '8'],
-        //     vec!['.', '.', '.', '.', '8', '1', '.', '.', '.'],
-        //     vec!['.', '.', '2', '.', '.', '.', '.', '5', '.'],
-        //     vec!['.', '4', '.', '.', '.', '.', '3', '.', '.'],
-        // ]);
     }
 }

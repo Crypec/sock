@@ -6,7 +6,7 @@
 #![feature(associated_type_bounds)]
 #![feature(assert_matches)]
 #![feature(test)]
-#![allow(dead_code)]
+//#![allow(dead_code)]
 
 // #![warn(clippy::restriction)]
 
@@ -63,9 +63,12 @@ fn main() {
 
     #[cfg(feature = "no-jobs")]
     {
-        for board in boards {
+        for (index, board) in boards.into_iter().enumerate() {
+            let now = std::time::Instant::now();
             let solver = Solver::new(board);
             let res = solver.solve();
+
+            println!("solved: {index} :: {:?}", now.elapsed());
 
             assert_matches!(res, Ok(b) if b.is_solved());
         }

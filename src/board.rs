@@ -68,56 +68,32 @@ pub enum Cell {
     Free,
 }
 
-// stores the row_index in the upper 4 bits and the col_index in the lower 4 bits
-#[derive(Debug, Hash, Clone, Eq, PartialEq)]
-pub struct BoardIndex(u8);
-
-impl BoardIndex {
-    #[inline]
-    pub const fn new(row_index: u8, col_index: u8) -> Self {
-        debug_assert!(row_index <= 8 && col_index <= 8);
-        let index = (row_index << 4) | col_index;
-        Self(index)
-    }
-}
-
-impl Index<BoardIndex> for Board {
-    type Output = Cell;
-
-    fn index(&self, index: BoardIndex) -> &Self::Output {
-        let row_index = ((index.0 & 0b_1111_0000) >> 4) as usize;
-        let col_index = (index.0 & 0b_0000_1111) as usize;
-        debug_assert!(row_index <= 8 && col_index <= 8);
-        unsafe { self.0.get_unchecked(row_index).get_unchecked(col_index) }
-    }
-}
-
 #[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
-pub struct BigBoardIndex {
+pub struct BigBoardPosition {
     pub row_index: usize,
     pub col_index: usize,
 }
 
-impl BigBoardIndex {
+impl BigBoardPosition {
     #[inline(always)]
     pub const fn new(row_index: usize, col_index: usize) -> Self {
         Self { row_index, col_index }
     }
 }
 
-impl Index<BigBoardIndex> for Board {
+impl Index<BigBoardPosition> for Board {
     type Output = Cell;
 
     #[inline(always)]
-    fn index(&self, index: BigBoardIndex) -> &Self::Output {
+    fn index(&self, index: BigBoardPosition) -> &Self::Output {
         debug_assert!(index.row_index <= 8 && index.col_index <= 8);
         unsafe { self.0.get_unchecked(index.row_index).get_unchecked(index.col_index) }
     }
 }
 
-impl IndexMut<BigBoardIndex> for Board {
+impl IndexMut<BigBoardPosition> for Board {
     #[inline(always)]
-    fn index_mut(&mut self, index: BigBoardIndex) -> &mut Self::Output {
+    fn index_mut(&mut self, index: BigBoardPosition) -> &mut Self::Output {
         debug_assert!(index.row_index <= 8 && index.col_index <= 8);
         unsafe {
             self.0
@@ -241,7 +217,12 @@ impl ConstraintList {
 
     #[inline(always)]
     pub const fn is_empty(self) -> bool {
-        self.len() == 0
+        self.0 .0 == 0
+    }
+
+    #[inline(always)]
+    pub const fn clear_all(mut self) {
+        unsafe { self.0 .0 = 0 }
     }
 
     #[inline(always)]
@@ -332,7 +313,7 @@ impl U9BitArray {
 
     #[inline(always)]
     pub fn set_bit(&mut self, index: u8) {
-        assert!(index <= 9, "index out of range");
+        debug_assert!(index <= 9, "index out of range");
         unsafe {
             self.0 |= 1 << index;
         }
@@ -340,13 +321,13 @@ impl U9BitArray {
 
     #[inline(always)]
     pub const fn is_bit_set(self, index: usize) -> bool {
-        assert!(index <= 9, "index out of range");
+        debug_assert!(index <= 9, "index out of range");
         self.0 & (1 << index) != 0
     }
 
     #[inline(always)]
     pub fn clear_bit(&mut self, index: u8) {
-        assert!(index <= 9, "index out of range");
+        debug_assert!(index <= 9, "index out of range");
         unsafe {
             self.0 &= !(1 << index);
         }
@@ -366,7 +347,7 @@ impl U9BitArray {
 
     #[inline(always)]
     pub fn first_index(self) -> u32 {
-        assert_ne!(self.0, 0, "not bits set");
+        debug_assert_ne!(self.0, 0, "not bits set");
         self.0.trailing_zeros()
     }
 }
@@ -407,14 +388,14 @@ impl BoardIter {
 }
 
 impl Iterator for BoardIter {
-    type Item = BigBoardIndex;
+    type Item = BigBoardPosition;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.row_index >= 9 {
             return None;
         }
 
-        let result = BigBoardIndex::new(self.row_index, self.col_index);
+        let result = BigBoardPosition::new(self.row_index, self.col_index);
 
         self.col_index += 1;
         if self.col_index >= 9 {
@@ -439,7 +420,7 @@ impl RowIter {
 }
 
 impl Iterator for RowIter {
-    type Item = BigBoardIndex;
+    type Item = BigBoardPosition;
 
     fn next(&mut self) -> Option<Self::Item> {
         let cursor = self.cursor;
@@ -449,7 +430,7 @@ impl Iterator for RowIter {
             return None;
         }
 
-        Some(BigBoardIndex::new(self.row, cursor))
+        Some(BigBoardPosition::new(self.row, cursor))
     }
 }
 
@@ -466,7 +447,7 @@ impl ColIter {
 }
 
 impl Iterator for ColIter {
-    type Item = BigBoardIndex;
+    type Item = BigBoardPosition;
 
     fn next(&mut self) -> Option<Self::Item> {
         let cursor = self.cursor;
@@ -476,7 +457,7 @@ impl Iterator for ColIter {
             return None;
         }
 
-        Some(BigBoardIndex::new(cursor, self.col))
+        Some(BigBoardPosition::new(cursor, self.col))
     }
 }
 
@@ -499,7 +480,7 @@ impl BoxIter {
 }
 
 impl Iterator for BoxIter {
-    type Item = BigBoardIndex;
+    type Item = BigBoardPosition;
 
     #[allow(clippy::cast_sign_loss)]
     #[allow(clippy::cast_possible_wrap)]
@@ -515,7 +496,7 @@ impl Iterator for BoxIter {
         let row_index = ((self.row_index as isize) + row_offset) as usize;
         let col_index = ((self.col_index as isize) + col_offset) as usize;
 
-        Some(BigBoardIndex::new(row_index, col_index))
+        Some(BigBoardPosition::new(row_index, col_index))
     }
 }
 
@@ -646,7 +627,7 @@ mod test {
     use super::*;
     use std::assert_matches::assert_matches;
 
-    type BoardIndex = BigBoardIndex;
+    type BoardIndex = BigBoardPosition;
 
     #[test]
     fn constraint_list_full() {

@@ -7,3 +7,4 @@ dhat-heap.json
 dhat.out.*
 profile.json
 vgcore.*
+/render

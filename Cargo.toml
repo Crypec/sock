@@ -9,11 +9,12 @@ codegen-units = 1
 lto = "fat"
 
 [features]
-default = ["dhat-heap"] 
-dhat-heap = []
-dhat-ad-hoc = []
+default = ["visualize"] 
 no-jobs = []
 tracing = []
+visualize = ["tracing"]
+dhat-heap = []
+dhat-ad-hoc = []
 
 [dependencies]
 cli-table = "0.4.7"

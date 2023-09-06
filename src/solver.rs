@@ -6,7 +6,7 @@ use crate::board::{
     ConstraintList, RowIter, SudokuNum,
 };
 
-use tracing::*;
+use tracing::Origin;
 
 type BoardPosition = BigBoardPosition;
 
@@ -388,11 +388,13 @@ impl Solver {
     fn remove_cons_at_pos(&mut self, to_remove: SudokuNum, position: BoardPosition) {
         let row_index = position.row_index;
         let col_index = position.col_index;
-        let box_position = Self::calculate_box_position(position);
+        let box_index = Self::calculate_box_position(position);
 
-        self.row_missing[row_index].remove(to_remove);
-        self.col_missing[col_index].remove(to_remove);
-        self.box_missing[box_position].remove(to_remove);
+        unsafe {
+            self.row_missing.get_unchecked_mut(row_index).remove(to_remove);
+            self.col_missing.get_unchecked_mut(col_index).remove(to_remove);
+            self.box_missing.get_unchecked_mut(box_index).remove(to_remove);
+        }
     }
 
     fn partially_propagate_constraints(&mut self) {
@@ -401,20 +403,6 @@ impl Solver {
             Self::partially_propagate_constraints_iter(&self.board, ColIter::new(i), &mut self.col_missing[i]);
             Self::partially_propagate_constraints_iter(&self.board, BoxIter::new(i), &mut self.box_missing[i]);
         }
-    }
-
-    fn partially_propagate_constraints_iter<I>(board: &Board, iter: I, missing_list: &mut ConstraintList)
-    where
-        I: IntoIterator<Item = BoardPosition>,
-    {
-        let mut cons = ConstraintList::full();
-        for position in iter {
-            let cell = board[position];
-            if let Cell::Number(n) = cell {
-                cons.remove(n);
-            }
-        }
-        *missing_list = cons;
     }
 
     fn insert_and_forward_propagate(

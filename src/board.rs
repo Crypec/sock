@@ -4,6 +4,8 @@
 use cli_table::{Style, Table};
 use std::fmt;
 use std::ops::{Index, IndexMut};
+
+use crate::solver::BoardNotSolvableError;
 // use std::ops::Index;
 
 #[derive(Copy, Clone, Eq, PartialEq)]

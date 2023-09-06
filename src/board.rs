@@ -5,7 +5,6 @@ use cli_table::{Style, Table};
 use std::fmt;
 use std::ops::{Index, IndexMut};
 
-use crate::solver::BoardNotSolvableError;
 // use std::ops::Index;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -333,6 +332,12 @@ impl U9BitArray {
     }
 
     #[inline(always)]
+    pub const fn is_bit_set_u8(self, index: u8) -> bool {
+        debug_assert!(index <= 9, "index out of range");
+        self.0 & (1 << index) != 0
+    }
+
+    #[inline(always)]
     pub fn clear_bit(&mut self, index: u8) {
         debug_assert!(index <= 9, "index out of range");
         unsafe {
@@ -536,23 +541,20 @@ impl Iterator for CombinationsIter {
 
 pub struct ConstraintListIter {
     bits: U9BitArray,
-    cursor: u8,
 }
 
 impl Iterator for ConstraintListIter {
     type Item = SudokuNum;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let cursor = self.cursor;
-            self.cursor += 1;
-
-            if cursor > 8 {
-                return None;
+        if self.bits.0 == 0 {
+            None
+        } else {
+            let lsb = self.bits.0 & self.bits.0.wrapping_neg();
+            unsafe {
+                self.bits.0 &= self.bits.0 - 1;
             }
-            if self.bits.is_bit_set(cursor as usize) {
-                return Some((cursor + 1).into());
-            }
+            ((lsb.trailing_zeros() + 1) as usize).try_into().ok()
         }
     }
 }
@@ -562,10 +564,7 @@ impl IntoIterator for ConstraintList {
     type IntoIter = ConstraintListIter;
 
     fn into_iter(self) -> ConstraintListIter {
-        ConstraintListIter {
-            bits: self.0,
-            cursor: 0,
-        }
+        ConstraintListIter { bits: self.0 }
     }
 }
 
@@ -574,10 +573,7 @@ impl<'a> IntoIterator for &'a ConstraintList {
     type IntoIter = ConstraintListIter;
 
     fn into_iter(self) -> ConstraintListIter {
-        ConstraintListIter {
-            bits: self.0,
-            cursor: 0,
-        }
+        ConstraintListIter { bits: self.0 }
     }
 }
 impl std::fmt::Debug for ConstraintList {

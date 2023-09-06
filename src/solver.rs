@@ -1,3 +1,5 @@
+#![allow(clippy::upper_case_acronyms)]
+
 use rustc_hash::FxHashMap;
 use strum::EnumCount;
 
@@ -42,6 +44,7 @@ impl Solver {
     // because the are only 9 possible numbers in sudoku
     const MCV_CANDIDATE_MAX_LEN: u8 = MAX_NUMBER_COUNT as u8;
 
+    #[must_use]
     pub fn new(board: Board) -> Self {
         Self {
             board,
@@ -460,7 +463,7 @@ impl Solver {
         }
     }
 
-    pub fn is_subset(&self, other: &Board) -> bool {
+    #[must_use] pub fn is_subset(&self, other: &Board) -> bool {
         let mut is_subset = true;
         for position in BoardIter::new() {
             let cell = self.board[position];
@@ -481,7 +484,7 @@ impl Solver {
         is_subset
     }
 
-    pub fn get_constrained_board(&self) -> BoardWithConstraints {
+    #[must_use] pub fn get_constrained_board(&self) -> BoardWithConstraints {
         let mut new_board = BoardWithConstraints::new();
         for position in BoardIter::new() {
             let old_cell = self.board[position];
@@ -499,7 +502,8 @@ impl Solver {
         new_board
     }
 
-    pub fn get_constraints_as_board(&self) -> BoardWithConstraints {
+    #[must_use]
+    fn get_constraints_as_board(&self) -> BoardWithConstraints {
         let mut new_board = BoardWithConstraints::new();
         for position in BoardIter::new() {
             let cons = self.constraints_at(position);
@@ -521,7 +525,7 @@ enum HiddenSingleEntry {
 }
 
 pub mod tracing {
-    use super::*;
+    use super::{BoardPosition, BoardWithConstraints, SudokuNum};
 
     #[derive(Debug)]
     pub struct Trace {

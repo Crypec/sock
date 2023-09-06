@@ -1,12 +1,12 @@
 use crate::board::{BigBoardPosition, BoardWithConstraints, CellWithConstraints, SudokuNum};
-use crate::solver::tracing::*;
+use crate::solver::tracing::{Event, Origin, Trace};
 
 pub fn visualize_trace<'p, P>(trace: &Trace, path: P)
 where
     P: AsRef<std::path::Path>,
 {
     dbg!(&trace.events);
-    let root_board = emit_board(&trace.root.as_ref().expect("no root board set"), "root");
+    let root_board = emit_board(trace.root.as_ref().expect("no root board set"), "root");
 
     let boards = trace
         .events
@@ -23,7 +23,7 @@ where
             Event::Restore => None,
         })
         .enumerate()
-        .map(|(i, board)| emit_board(&board, &format!("b_{i}")))
+        .map(|(i, board)| emit_board(board, &format!("b_{i}")))
         .collect::<Vec<String>>()
         .join("\n\n\n");
 
@@ -63,7 +63,7 @@ fn emit_edges(events: &[Event]) -> String {
 
                 current_index += 1;
 
-                let insert_label = emit_insert_label(&origin, &position, number);
+                let insert_label = emit_insert_label(origin, position, number);
                 let edge = format!("b_{prev_index} -> b_{current_index} {insert_label}");
 
                 prev_index = current_index;
@@ -74,7 +74,7 @@ fn emit_edges(events: &[Event]) -> String {
                 prev_index = stack.pop().unwrap();
             }
             Event::PartiallyPropagate { board: _ } => {
-                let edge = format!(r#"root -> b_0 [label = "partially propagate constraints"]"#);
+                let edge = r#"root -> b_0 [label = "partially propagate constraints"]"#.to_string();
                 edges.push(edge);
             }
             Event::Solved { board: _ } => {}
@@ -97,7 +97,7 @@ fn emit_insert_label(origin: &Origin, index: &BigBoardPosition, number: &SudokuN
 }
 
 fn emit_board(board: &BoardWithConstraints, name: &str) -> String {
-    let board_table = emit_board_table(&board);
+    let board_table = emit_board_table(board);
     format!("{name} [label=<\n    {board_table}\n        >];")
 }
 

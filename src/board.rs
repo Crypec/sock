@@ -1,4 +1,6 @@
 #![warn(clippy::nursery)]
+#![allow(clippy::inline_always)]
+#![allow(clippy::module_name_repetitions)]
 // #![warn(clippy::restriction)]
 
 use cli_table::{Style, Table};
@@ -13,6 +15,7 @@ pub struct Board(pub [[Cell; 9]; 9]);
 impl Board {
     /// A `Board` is `solved` when all the rows, columns and houses contain the numbers from 1 to 9
 
+    #[must_use]
     pub fn is_solved(&self) -> bool {
         for i in 0..9 {
             // check if all the numbers are present in the rows
@@ -77,6 +80,7 @@ pub struct BigBoardPosition {
 
 impl BigBoardPosition {
     #[inline(always)]
+    #[must_use]
     pub const fn new(row_index: usize, col_index: usize) -> Self {
         Self { row_index, col_index }
     }
@@ -114,6 +118,7 @@ pub struct BoardWithConstraints(pub [[CellWithConstraints; 9]; 9]);
 
 impl BoardWithConstraints {
     #[inline(always)]
+    #[must_use]
     pub const fn new() -> Self {
         Self([[CellWithConstraints::Free; 9]; 9])
     }
@@ -208,21 +213,25 @@ pub struct ConstraintList(pub U9BitArray);
 
 impl ConstraintList {
     #[inline(always)]
+    #[must_use]
     pub const fn full() -> Self {
         Self(U9BitArray::new(0b_0000_0001_1111_1111))
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn empty() -> Self {
         Self(U9BitArray::new(0b_0000_0000_0000_0000))
     }
 
     #[inline(always)]
+    #[must_use]
     const fn from_raw_bits(raw: u16) -> Self {
         Self(U9BitArray::new(raw))
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn is_empty(self) -> bool {
         self.0 .0 == 0
     }
@@ -233,6 +242,7 @@ impl ConstraintList {
     }
 
     #[inline(always)]
+    #[must_use]
     pub fn naked_single(self) -> Option<SudokuNum> {
         // PERF(Simon): maybe set hint to llvm that the first branch is far more likely
         if self.len() != 1 {
@@ -260,21 +270,25 @@ impl ConstraintList {
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn contains(self, needle: SudokuNum) -> bool {
         self.0.is_bit_set((needle as usize) - 1)
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn contains_all(self, other: Self) -> bool {
         self.0 .0 & other.0 .0 == other.0 .0
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn len(self) -> u32 {
         self.0.count_ones()
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn combinations(self, k: u8) -> CombinationsIter {
         let current = (1 << k) - 1;
         CombinationsIter {
@@ -285,6 +299,7 @@ impl ConstraintList {
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn intersection(c0: Self, c1: Self, c2: Self) -> Self {
         Self::from_raw_bits(c0.0 .0 & c1.0 .0 & c2.0 .0)
     }
@@ -312,6 +327,7 @@ pub struct U9BitArray(u16);
 
 impl U9BitArray {
     #[inline(always)]
+    #[must_use]
     pub const fn new(value: u16) -> Self {
         debug_assert!(value <= 0b0000_0001_1111_1111);
         unsafe { Self(value) }
@@ -326,12 +342,14 @@ impl U9BitArray {
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn is_bit_set(self, index: usize) -> bool {
         debug_assert!(index <= 9, "index out of range");
         self.0 & (1 << index) != 0
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn is_bit_set_u8(self, index: u8) -> bool {
         debug_assert!(index <= 9, "index out of range");
         self.0 & (1 << index) != 0
@@ -353,11 +371,13 @@ impl U9BitArray {
     }
 
     #[inline(always)]
+    #[must_use]
     pub const fn count_ones(self) -> u32 {
         self.0.count_ones()
     }
 
     #[inline(always)]
+    #[must_use]
     pub fn first_index(self) -> u32 {
         debug_assert_ne!(self.0, 0, "not bits set");
         self.0.trailing_zeros()
@@ -391,6 +411,7 @@ pub struct BoardIter {
 }
 
 impl BoardIter {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             row_index: 0,
@@ -425,6 +446,7 @@ pub struct RowIter {
 }
 
 impl RowIter {
+    #[must_use]
     pub const fn new(row: usize) -> Self {
         debug_assert!(row <= 8);
         Self { row, cursor: 0 }
@@ -452,6 +474,7 @@ pub struct ColIter {
 }
 
 impl ColIter {
+    #[must_use]
     pub const fn new(col: usize) -> Self {
         debug_assert!(col <= 8);
         Self { col, cursor: 0 }
@@ -480,6 +503,7 @@ pub struct BoxIter {
 }
 
 impl BoxIter {
+    #[must_use]
     pub const fn new(square: usize) -> Self {
         debug_assert!(square <= 8);
         let (row_index, col_index) = MIDDLE_OF_SQUARE_INDEXES[square];
@@ -553,6 +577,8 @@ impl Iterator for ConstraintListIter {
             let lsb = self.bits.0 & self.bits.0.wrapping_neg();
             unsafe {
                 self.bits.0 &= self.bits.0 - 1;
+
+                // Some(std::mem::transmute((lsb.trailing_zeros() + 1) as u8))
             }
             ((lsb.trailing_zeros() + 1) as usize).try_into().ok()
         }
@@ -592,7 +618,7 @@ impl fmt::Display for Cell {
     }
 }
 
-pub fn parse_board(board: Vec<Vec<char>>) -> Board {
+#[must_use] pub fn parse_board(board: Vec<Vec<char>>) -> Board {
     let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Free));
 
     for row_index in 0..9 {
@@ -610,7 +636,7 @@ pub fn parse_board(board: Vec<Vec<char>>) -> Board {
     Board(new_board)
 }
 
-pub fn parse_char_to_sudoku_num(c: char) -> SudokuNum {
+#[must_use] pub fn parse_char_to_sudoku_num(c: char) -> SudokuNum {
     match c {
         '1' => SudokuNum::One,
         '2' => SudokuNum::Two,
@@ -625,7 +651,7 @@ pub fn parse_char_to_sudoku_num(c: char) -> SudokuNum {
     }
 }
 
-pub fn parse_board_from_line(line: &str) -> Board {
+#[must_use] pub fn parse_board_from_line(line: &str) -> Board {
     debug_assert_eq!(line.len(), 81);
     let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Free));
     for (row_index, row) in new_board.iter_mut().enumerate() {

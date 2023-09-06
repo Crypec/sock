@@ -171,6 +171,7 @@ impl Solver {
 
                     let old_board = self.board;
 
+                    // self.invalidate_mcv_candidate();
                     if self
                         .insert_and_forward_propagate(c, position, Origin::DFSTryAll)
                         .is_err()
@@ -279,6 +280,7 @@ impl Solver {
         self.mcv_candidate.1 = None;
     }
 
+    #[inline]
     fn constraints_at(&self, position: BoardPosition) -> ConstraintList {
         let row_index = position.row_index;
         let col_index = position.col_index;
@@ -313,12 +315,33 @@ impl Solver {
         Ok(())
     }
 
-    const fn calculate_box_position(position: BoardPosition) -> usize {
+    // #[inline(always)]
+    fn calculate_box_position(position: BoardPosition) -> usize {
+        const BOX_POSITION_LUT: [[usize; 9]; 9] = [
+            [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            [0, 0, 0, 1, 1, 1, 2, 2, 2],
+            [3, 3, 3, 4, 4, 4, 5, 5, 5],
+            [3, 3, 3, 4, 4, 4, 5, 5, 5],
+            [3, 3, 3, 4, 4, 4, 5, 5, 5],
+            [6, 6, 6, 7, 7, 7, 8, 8, 8],
+            [6, 6, 6, 7, 7, 7, 8, 8, 8],
+            [6, 6, 6, 7, 7, 7, 8, 8, 8],
+        ];
+
         let row_index = position.row_index;
         let col_index = position.col_index;
+        unsafe { *BOX_POSITION_LUT.get_unchecked(row_index).get_unchecked(col_index) }
 
-        (row_index / 3) * 3 + col_index / 3
+        // (row_index / 3) * 3 + col_index / 3
     }
+
+    // const fn calculate_box_position(position: BoardPosition) -> usize {
+    //     let row_index = position.row_index;
+    //     let col_index = position.col_index;
+
+    //     (row_index / 3) * 3 + col_index / 3
+    // }
 
     fn remove_cons_at_pos(&mut self, to_remove: SudokuNum, position: BoardPosition) {
         let row_index = position.row_index;

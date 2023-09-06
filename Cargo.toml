@@ -9,7 +9,7 @@ codegen-units = 1
 lto = "fat"
 
 [features]
-default = ["visualize"] 
+default = [] 
 no-jobs = []
 tracing = []
 visualize = ["tracing"]

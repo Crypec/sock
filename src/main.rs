@@ -48,7 +48,7 @@ fn main() {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 
-    let test_data = std::fs::read_to_string("test_data.txt").unwrap();
+    let test_data = std::fs::read_to_string("test_data/codegolf.txt").unwrap();
     let boards = parse_boards_list(&test_data);
 
     let now = std::time::Instant::now();

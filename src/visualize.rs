@@ -57,7 +57,7 @@ fn emit_edges(events: &[Event]) -> String {
                 number,
                 board: _,
             } => {
-                if *origin == Origin::DFS {
+                if *origin == Origin::DFSMCV || *origin == Origin::DFSTryAll {
                     stack.push(current_index);
                 }
 
@@ -89,7 +89,8 @@ fn emit_insert_label(origin: &Origin, index: &BigBoardPosition, number: &SudokuN
         Origin::NakedSingle => "naked single",
         Origin::HiddenSingle => "hidden single",
         Origin::ForwardPropagate => "forward propagation",
-        Origin::DFS => "depth first search",
+        Origin::DFSMCV => "depth first search (MCV)",
+        Origin::DFSTryAll => "depth first search (Search)",
     };
     let index = format!("{:?}", (index.row_index, index.col_index));
     format!(r#"[ label ="{origin_text} :: {number} : {index}" ]"#)

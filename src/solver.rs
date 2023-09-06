@@ -144,7 +144,7 @@ impl Solver {
 
                     self.remove_cons_at_pos(c, position);
 
-                    if self.insert_and_forward_propagate(c, position, Origin::DFS).is_err() {
+                    if self.insert_and_forward_propagate(c, position, Origin::DFSMCV).is_err() {
                         self.restore_state(old_board, old_row_missing, old_col_missing, old_box_missing);
                         continue;
                     }
@@ -180,7 +180,10 @@ impl Solver {
 
                     let old_board = self.board;
 
-                    if self.insert_and_forward_propagate(c, position, Origin::DFS).is_err() {
+                    if self
+                        .insert_and_forward_propagate(c, position, Origin::DFSTryAll)
+                        .is_err()
+                    {
                         self.restore_state(old_board, old_row_missing, old_col_missing, old_box_missing);
                         continue;
                     }
@@ -424,31 +427,9 @@ impl Solver {
         {
             use std::assert_matches::*;
             let cons = self.constraints_at(position);
-            // dbg!(cons);
-            // dbg!(self.get_constrained_board());
-
             let cell = self.board[position];
 
-            if position.row_index == 6 && position.col_index == 5 {
-                debug_assert_matches!(cell, Cell::Free if cons.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?}\n{:?}", number, (position.row_index, position.col_index), self.get_constrained_board());
-                // dbg!(self.get_constrained_board());
-                // panic!();
-            }
-            // debug_assert_eq!(cell, Cell::Free);
-            // debug_assert_eq!(
-            //     cons.contains(number),
-            //     true,
-            //     "the placement of a number has to be at least partially valid :: {} : {:?}\n{:?}",
-            //     number,
-            //     (position.row_index, position.col_index),
-            //     self.get_constrained_board(),
-            // );
-
-            // dbg!(&self.hidden_sets_square_cache);
-            // dbg!((row_index, col_index, num));
-            // dbg!(&self.trace.root);
-            debug_assert_matches!(cell, Cell::Free if cons.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?}\n{:?}", number, (position.row_index, position.col_index), self.get_constrained_board());
-            // debug_assert_matches!(cell, _ if true, "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?}\n{:?}", number, (position.row_index, position.col_index), self.get_constrained_board());
+            debug_assert_matches!(cell, Cell::Free if cons.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?} => {:?}{:?}\n{:?}", number, (position.row_index, position.col_index), _origin, cons, self.get_constrained_board());
         }
 
         #[cfg(feature = "tracing")]
@@ -481,7 +462,7 @@ impl Solver {
                 }
 
                 // check if we maybe found a more constraining candidate
-                self.maybe_update_mcv_candidate(cons.len() as u8, position);
+                // self.maybe_update_mcv_candidate(cons.len() as u8, position);
 
                 if let Some(num) = cons.naked_single() {
                     self.insert_and_forward_propagate(num, position, Origin::ForwardPropagate)?;
@@ -614,7 +595,8 @@ pub mod tracing {
         ForwardPropagate,
         NakedSingle,
         HiddenSingle,
-        DFS,
+        DFSTryAll,
+        DFSMCV,
     }
 }
 

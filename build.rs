@@ -12,7 +12,7 @@ fn main() {
         println!("{file_stem:?}");
         // println!("Name: {}", path.unwrap().path().display())
     }
-    // panic!("stop");
+    panic!("stop");
 }
 
 fn write_test(path: String, name: &str, file: std::fs::File) {}

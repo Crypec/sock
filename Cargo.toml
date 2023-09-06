@@ -24,3 +24,6 @@ rayon = "1.7.0"
 rustc-hash = "1.1.0"
 strum = { version = "0.25.0", features = ["derive"]}
 unroll = { version = "0.1.5", features = ["unstable"] }
+
+[build-dependencies]
+cc = "1.0"

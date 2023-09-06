@@ -10,3 +10,4 @@ vgcore.*
 /render
 /tdoku
 /test_data
+*.profraw

@@ -26,20 +26,16 @@
    git clone --recursive https://github.com/Crypec/sock.git
    cd sock
    ```
+3. **Unpack Test Data**
+```bash
+unzip test_data.zip 
+```
 
-3. **Build the Project**
+4. **Build the Project**
 
    ```bash
    cargo build --release
    ```
-
-4. **Run sock**
-
-   ```bash
-   target/release/fast_sudoku
-   ```
-
----
 
 ## 🤖 Usage
 

@@ -70,7 +70,7 @@ pub enum Cell {
     Free,
 }
 
-#[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
+#[derive(Hash, Copy, Clone, Eq, PartialEq)]
 pub struct BigBoardPosition {
     pub row_index: usize,
     pub col_index: usize,
@@ -80,6 +80,12 @@ impl BigBoardPosition {
     #[inline(always)]
     pub const fn new(row_index: usize, col_index: usize) -> Self {
         Self { row_index, col_index }
+    }
+}
+
+impl std::fmt::Debug for BigBoardPosition {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
+        write!(f, "({}, {})", self.row_index, self.col_index)
     }
 }
 
@@ -621,6 +627,23 @@ pub fn parse_char_to_sudoku_num(c: char) -> SudokuNum {
         '9' => SudokuNum::Nine,
         _ => unreachable!("failed to parse char to sudoku number"),
     }
+}
+
+pub fn parse_board_from_line(line: &str) -> Board {
+    debug_assert_eq!(line.len(), 81);
+    let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Free));
+    for (row_index, row) in new_board.iter_mut().enumerate() {
+        for (col_index, cell) in row.iter_mut().enumerate() {
+            let char_cell = (line.as_bytes()[(row_index * 9) + col_index]) as char;
+            let new_cell = match char_cell {
+                '1'..='9' => Cell::Number(parse_char_to_sudoku_num(char_cell)),
+                '.' | '0' => Cell::Free,
+                _ => panic!("invalid char"),
+            };
+            *cell = new_cell;
+        }
+    }
+    Board(new_board)
 }
 
 #[cfg(test)]

@@ -34,10 +34,6 @@ pub struct Solver {
     row_missing: MissingNumbersList,
     box_missing: MissingNumbersList,
 
-    hidden_singles_row_cache: HiddenSinglesEntryList,
-    hidden_singles_col_cache: HiddenSinglesEntryList,
-    hidden_singles_box_cache: HiddenSinglesEntryList,
-
     #[cfg(feature = "tracing")]
     pub trace: Trace,
 }
@@ -61,10 +57,6 @@ impl Solver {
             col_missing: [ConstraintList::full(); MAX_NUMBER_COUNT],
             row_missing: [ConstraintList::full(); MAX_NUMBER_COUNT],
             box_missing: [ConstraintList::full(); MAX_NUMBER_COUNT],
-
-            hidden_singles_row_cache: [HiddenSingleEntry::None; MAX_NUMBER_COUNT],
-            hidden_singles_col_cache: [HiddenSingleEntry::None; MAX_NUMBER_COUNT],
-            hidden_singles_box_cache: [HiddenSingleEntry::None; MAX_NUMBER_COUNT],
 
             #[cfg(feature = "tracing")]
             trace: Trace {
@@ -127,7 +119,6 @@ impl Solver {
 
     // If we have exhausted all our options using constraint propagation, run a depth first search
     fn solve_dfs(&mut self, depth: usize) -> Result<Board, BoardNotSolvableError> {
-        // println!("{depth}");
         if let Some(position) = self.mcv_candidate.1 {
             self.invalidate_mcv_candidate();
 
@@ -228,98 +219,42 @@ impl Solver {
 
     fn insert_hidden_singles(&mut self) -> Result<(), BoardNotSolvableError> {
         for i in 0..9 {
-            self.hidden_singles_row_cache = [HiddenSingleEntry::None; 9];
-
-            for position in RowIter::new(i) {
-                let cell = self.board[position];
-                if cell == Cell::Free {
-                    let cons = self.constraints_at(position);
-                    for sudoku_num in cons {
-                        Self::maybe_update_hidden_singles_entry(
-                            &mut self.hidden_singles_row_cache,
-                            sudoku_num,
-                            position,
-                        );
-                    }
-                }
-            }
-
-            self.insert_hidden_singles_row_entries()?;
-
-            self.hidden_singles_col_cache = [HiddenSingleEntry::None; 9];
-            for position in ColIter::new(i) {
-                let cell = self.board[position];
-                if cell == Cell::Free {
-                    let cons = self.constraints_at(position);
-                    for sudoku_num in cons {
-                        Self::maybe_update_hidden_singles_entry(
-                            &mut self.hidden_singles_col_cache,
-                            sudoku_num,
-                            position,
-                        );
-                    }
-                }
-            }
-
-            self.insert_hidden_singles_col_entries()?;
-
-            self.hidden_singles_box_cache = [HiddenSingleEntry::None; 9];
-            for position in BoxIter::new(i) {
-                let cell = self.board[position];
-                if cell == Cell::Free {
-                    let cons = self.constraints_at(position);
-                    for sudoku_num in cons {
-                        Self::maybe_update_hidden_singles_entry(
-                            &mut self.hidden_singles_box_cache,
-                            sudoku_num,
-                            position,
-                        );
-                    }
-                }
-            }
-            self.insert_hidden_singles_box_entries()?;
+            self.insert_hidden_singles_iter(RowIter::new(i))?;
+            self.insert_hidden_singles_iter(ColIter::new(i))?;
+            self.insert_hidden_singles_iter(BoxIter::new(i))?;
         }
         Ok(())
     }
 
-    fn insert_hidden_singles_row_entries(&mut self) -> Result<(), BoardNotSolvableError> {
-        unsafe {
-            let this = self as *mut Self;
+    fn insert_hidden_singles_iter<I>(&mut self, iter: I) -> Result<(), BoardNotSolvableError>
+    where
+        I: Iterator<Item = BoardPosition>,
+    {
+        let mut hidden_singles_cache = [HiddenSingleEntry::None; MAX_NUMBER_COUNT];
 
-            // dbg!(self.hidden_singles_row_cache);
-            for (num_index, entry) in self.hidden_singles_row_cache.iter().enumerate() {
-                if let HiddenSingleEntry::One(position) = entry {
-                    let num: SudokuNum = (num_index + 1).try_into().expect("failed to convert to sudoku number");
-                    // dbg!(self.get_constrained_board());
-                    (*this).insert_and_forward_propagate(num, *position, Origin::HiddenSingle)?;
+        for position in iter {
+            let cell = self.board[position];
+
+            if cell == Cell::Free {
+                let cons = self.constraints_at(position);
+                for sudoku_num in cons {
+                    Self::maybe_update_hidden_singles_entry(&mut hidden_singles_cache, sudoku_num, position);
                 }
             }
         }
+        self.insert_hidden_singles_from_entrylist(&hidden_singles_cache)?;
+
         Ok(())
     }
 
-    fn insert_hidden_singles_col_entries(&mut self) -> Result<(), BoardNotSolvableError> {
-        unsafe {
-            let this = self as *mut Self;
-            for (num_index, entry) in self.hidden_singles_col_cache.iter().enumerate() {
-                if let HiddenSingleEntry::One(position) = entry {
-                    let num: SudokuNum = (num_index + 1).try_into().expect("failed to convert to sudoku number");
-                    (*this).insert_and_forward_propagate(num, *position, Origin::HiddenSingle)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn insert_hidden_singles_box_entries(&mut self) -> Result<(), BoardNotSolvableError> {
-        unsafe {
-            let this = self as *mut Self;
-            for (num_index, entry) in self.hidden_singles_box_cache.iter().enumerate() {
-                if let HiddenSingleEntry::One(position) = entry {
-                    let num: SudokuNum = (num_index + 1).try_into().expect("failed to convert to sudoku number");
-
-                    (*this).insert_and_forward_propagate(num, *position, Origin::HiddenSingle)?;
-                }
+    fn insert_hidden_singles_from_entrylist(
+        &mut self,
+        hidden_singles_cache: &HiddenSinglesEntryList,
+    ) -> Result<(), BoardNotSolvableError> {
+        for (num_index, entry) in hidden_singles_cache.iter().enumerate() {
+            if let HiddenSingleEntry::One(position) = entry {
+                let num: SudokuNum = (num_index + 1).try_into().expect("failed to convert to sudoku number");
+                self.insert_and_forward_propagate(num, *position, Origin::HiddenSingle)?;
             }
         }
         Ok(())
@@ -398,10 +333,11 @@ impl Solver {
     }
 
     fn partially_propagate_constraints(&mut self) {
-        for i in 0..9 {
-            Self::partially_propagate_constraints_iter(&self.board, RowIter::new(i), &mut self.row_missing[i]);
-            Self::partially_propagate_constraints_iter(&self.board, ColIter::new(i), &mut self.col_missing[i]);
-            Self::partially_propagate_constraints_iter(&self.board, BoxIter::new(i), &mut self.box_missing[i]);
+        for position in BoardIter::new() {
+            let cell = self.board[position];
+            if let Cell::Number(number) = cell {
+                self.remove_cons_at_pos(number, position);
+            }
         }
     }
 
@@ -411,13 +347,15 @@ impl Solver {
         position: BoardPosition,
         _origin: Origin,
     ) -> Result<(), BoardNotSolvableError> {
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "paranoid")]
         {
             use std::assert_matches::*;
             let cons = self.constraints_at(position);
             let cell = self.board[position];
 
-            debug_assert_matches!(cell, Cell::Free if cons.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?} => {:?}{:?}\n{:?}", number, (position.row_index, position.col_index), _origin, cons, self.get_constrained_board());
+            let constrained_board = self.get_constrained_board();
+
+            debug_assert_matches!(cell, Cell::Free if cons.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?} => {:?}{:?}\n{:?}", number, (position.row_index, position.col_index), _origin, cons, constrained_board);
         }
 
         #[cfg(feature = "tracing")]
@@ -450,7 +388,7 @@ impl Solver {
                 }
 
                 // check if we maybe found a more constraining candidate
-                // self.maybe_update_mcv_candidate(cons.len() as u8, position);
+                self.maybe_update_mcv_candidate(cons.len() as u8, position);
 
                 if let Some(num) = cons.naked_single() {
                     self.insert_and_forward_propagate(num, position, Origin::ForwardPropagate)?;
@@ -531,6 +469,19 @@ impl Solver {
                     CellWithConstraints::Constrained(cons)
                 }
             };
+            let row_index = position.row_index;
+            let col_index = position.col_index;
+            new_board.0[row_index][col_index] = new_cell;
+        }
+        new_board
+    }
+
+    pub fn get_constraints_as_board(&self) -> BoardWithConstraints {
+        let mut new_board = BoardWithConstraints::new();
+        for position in BoardIter::new() {
+            let cons = self.constraints_at(position);
+            let new_cell = CellWithConstraints::Constrained(cons);
+
             let row_index = position.row_index;
             let col_index = position.col_index;
             new_board.0[row_index][col_index] = new_cell;

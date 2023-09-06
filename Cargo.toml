@@ -3,6 +3,10 @@ name = "sock"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "sock"
+path = "src/main.rs"
+
 [profile.release]
 debug = true
 codegen-units = 1
@@ -15,15 +19,15 @@ tracing = []
 visualize = ["tracing"]
 dhat-heap = []
 dhat-ad-hoc = []
+paranoid = []
 
 [dependencies]
 cli-table = "0.4.7"
 dhat = "0.3.2"
-# nohash-hasher = "0.2.0"
 rayon = "1.7.0"
 rustc-hash = "1.1.0"
 strum = { version = "0.25.0", features = ["derive"]}
 unroll = { version = "0.1.5", features = ["unstable"] }
 
 [build-dependencies]
-cc = "1.0"
+anyhow = "1.0"

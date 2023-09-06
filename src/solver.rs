@@ -223,45 +223,12 @@ impl Solver {
         self.box_missing = old_box_missing;
     }
 
-    // fn test(&mut self) {
-    //     for i in 0..9 {
-    //         let mut hidden_singles_row_cache = self.hidden_singles_row_cache;
-    //         self.compute_hidden_singles_cache_iter(&mut hidden_singles_row_cache, RowIter::new(1));
-    //         self.insert_hidden_singles_row_entries();
-    //     }
-    // }
-
-    // fn compute_hidden_singles_cache_iter<Iter>(
-    //     &self,
-    //     hidden_singles_cache_entry_list: &mut HiddenSinglesEntryList,
-    //     iter: Iter,
-    // ) where
-    //     Iter: Iterator<Item = (usize, usize)>,
-    // {
-    //     *hidden_singles_cache_entry_list = [HiddenSingleEntry::None; 9];
-    //     for (row_index, col_index) in iter {
-    //         let cell = self.board.0[row_index][col_index];
-    //         if cell == Cell::Free {
-    //             let cons = self.constraints_at(row_index, col_index);
-
-    //             for sudoku_num in cons {
-    //                 Self::maybe_update_hidden_singles_entry(
-    //                     hidden_singles_cache_entry_list,
-    //                     sudoku_num,
-    //                     row_index,
-    //                     col_index,
-    //                 );
-    //             }
-    //         }
-    //     }
-    // }
-
     fn insert_hidden_singles(&mut self) -> Result<(), BoardNotSolvableError> {
         for i in 0..9 {
             self.hidden_singles_row_cache = [HiddenSingleEntry::None; 9];
+
             for position in RowIter::new(i) {
                 let cell = self.board[position];
-
                 if cell == Cell::Free {
                     let cons = self.constraints_at(position);
                     for sudoku_num in cons {
@@ -273,6 +240,7 @@ impl Solver {
                     }
                 }
             }
+
             self.insert_hidden_singles_row_entries()?;
 
             self.hidden_singles_col_cache = [HiddenSingleEntry::None; 9];
@@ -289,6 +257,7 @@ impl Solver {
                     }
                 }
             }
+
             self.insert_hidden_singles_col_entries()?;
 
             self.hidden_singles_box_cache = [HiddenSingleEntry::None; 9];
@@ -313,11 +282,12 @@ impl Solver {
     fn insert_hidden_singles_row_entries(&mut self) -> Result<(), BoardNotSolvableError> {
         unsafe {
             let this = self as *mut Self;
-            for (num_position, entry) in self.hidden_singles_row_cache.iter().enumerate() {
+
+            // dbg!(self.hidden_singles_row_cache);
+            for (num_index, entry) in self.hidden_singles_row_cache.iter().enumerate() {
                 if let HiddenSingleEntry::One(position) = entry {
-                    let num: SudokuNum = (num_position + 1)
-                        .try_into()
-                        .expect("failed to convert to sudoku number");
+                    let num: SudokuNum = (num_index + 1).try_into().expect("failed to convert to sudoku number");
+                    // dbg!(self.get_constrained_board());
                     (*this).insert_and_forward_propagate(num, *position, Origin::HiddenSingle)?;
                 }
             }
@@ -328,11 +298,9 @@ impl Solver {
     fn insert_hidden_singles_col_entries(&mut self) -> Result<(), BoardNotSolvableError> {
         unsafe {
             let this = self as *mut Self;
-            for (num_position, entry) in self.hidden_singles_col_cache.iter().enumerate() {
+            for (num_index, entry) in self.hidden_singles_col_cache.iter().enumerate() {
                 if let HiddenSingleEntry::One(position) = entry {
-                    let num: SudokuNum = (num_position + 1)
-                        .try_into()
-                        .expect("failed to convert to sudoku number");
+                    let num: SudokuNum = (num_index + 1).try_into().expect("failed to convert to sudoku number");
                     (*this).insert_and_forward_propagate(num, *position, Origin::HiddenSingle)?;
                 }
             }
@@ -343,11 +311,9 @@ impl Solver {
     fn insert_hidden_singles_box_entries(&mut self) -> Result<(), BoardNotSolvableError> {
         unsafe {
             let this = self as *mut Self;
-            for (num_position, entry) in self.hidden_singles_box_cache.iter().enumerate() {
+            for (num_index, entry) in self.hidden_singles_box_cache.iter().enumerate() {
                 if let HiddenSingleEntry::One(position) = entry {
-                    let num: SudokuNum = (num_position + 1)
-                        .try_into()
-                        .expect("failed to convert to sudoku number");
+                    let num: SudokuNum = (num_index + 1).try_into().expect("failed to convert to sudoku number");
 
                     (*this).insert_and_forward_propagate(num, *position, Origin::HiddenSingle)?;
                 }
@@ -361,13 +327,13 @@ impl Solver {
         num: SudokuNum,
         position: BoardPosition,
     ) {
-        let num_position = (num as usize) - 1;
-        let old_entry = hidden_singles_entry_list[num_position];
+        let num_index = (num as usize) - 1;
+        let old_entry = hidden_singles_entry_list[num_index];
         let new_entry = match old_entry {
             HiddenSingleEntry::None => HiddenSingleEntry::One(position),
             HiddenSingleEntry::One(..) | HiddenSingleEntry::Many => HiddenSingleEntry::Many,
         };
-        hidden_singles_entry_list[num_position] = new_entry;
+        hidden_singles_entry_list[num_index] = new_entry;
     }
 
     fn invalidate_mcv_candidate(&mut self) {
@@ -375,17 +341,22 @@ impl Solver {
         self.mcv_candidate.1 = None;
     }
 
-    const fn constraints_at(&self, position: BoardPosition) -> ConstraintList {
+    fn constraints_at(&self, position: BoardPosition) -> ConstraintList {
         let row_index = position.row_index;
         let col_index = position.col_index;
 
-        let box_position = Self::calculate_box_position(position);
+        let box_index = Self::calculate_box_position(position);
 
-        let row_missing = self.row_missing[row_index];
-        let col_missing = self.col_missing[col_index];
-        let box_missing = self.box_missing[box_position];
+        debug_assert!(row_index <= MAX_NUMBER_COUNT);
+        debug_assert!(col_index <= MAX_NUMBER_COUNT);
 
-        ConstraintList::intersection(row_missing, col_missing, box_missing)
+        unsafe {
+            let row_missing = *self.row_missing.get_unchecked(row_index);
+            let col_missing = *self.col_missing.get_unchecked(col_index);
+            let box_missing = *self.box_missing.get_unchecked(box_index);
+
+            ConstraintList::intersection(row_missing, col_missing, box_missing)
+        }
     }
 
     fn insert_naked_singles(&mut self) -> Result<(), BoardNotSolvableError> {
@@ -404,167 +375,12 @@ impl Solver {
         Ok(())
     }
 
-    fn clear_row_subset_cache(&mut self) {
-        for positiones in &mut self.hidden_sets_row_cache.values_mut() {
-            positiones.clear();
-        }
-    }
-
-    fn clear_col_subset_cache(&mut self) {
-        for positiones in &mut self.hidden_sets_col_cache.values_mut() {
-            positiones.clear();
-        }
-    }
-
-    fn clear_box_cache(&mut self) {
-        for positiones in &mut self.hidden_sets_box_cache.values_mut() {
-            positiones.clear();
-        }
-    }
-
-    fn compute_hidden_subsets(&mut self) -> Result<(), BoardNotSolvableError> {
-        for i in 0..9 {
-            // hidden subsets in row
-            {
-                self.clear_row_subset_cache();
-                for position in RowIter::new(i) {
-                    let cell = self.board[position];
-
-                    if cell == Cell::Free {
-                        let cons = self.constraints_at(position);
-                        for k in 2..=4 {
-                            let subsets = cons.combinations(k);
-                            for s in subsets {
-                                let occurrences = self
-                                    .hidden_sets_row_cache
-                                    .entry(s)
-                                    .or_insert_with(|| Vec::with_capacity(9));
-                                occurrences.push(position);
-                            }
-                        }
-                    }
-                }
-                self.insert_constraints_from_hidden_sets_row_cache()?;
-            }
-
-            // hidden singles in columns
-            {
-                self.clear_col_subset_cache();
-                for position in ColIter::new(i) {
-                    let cell = self.board[position];
-
-                    if cell == Cell::Free {
-                        let cons = self.constraints_at(position);
-                        for k in 2..=4 as u8 {
-                            let subsets = cons.combinations(k);
-                            for s in subsets {
-                                let occurrences = self
-                                    .hidden_sets_col_cache
-                                    .entry(s)
-                                    .or_insert_with(|| Vec::with_capacity(9));
-                                occurrences.push(position);
-                            }
-                        }
-                    }
-                }
-                self.insert_constraints_from_hidden_sets_col_cache()?;
-            }
-
-            // hidden singles in boxes
-            {
-                self.clear_box_cache();
-                for position in BoxIter::new(i) {
-                    let cell = self.board[position];
-                    if cell == Cell::Free {
-                        let cons = self.constraints_at(position);
-                        for k in 2..=4 as u8 {
-                            let subsets = cons.combinations(k);
-                            for s in subsets {
-                                let occurrences = self
-                                    .hidden_sets_box_cache
-                                    .entry(s)
-                                    .or_insert_with(|| Vec::with_capacity(9));
-                                occurrences.push(position);
-                            }
-                        }
-                    }
-                }
-                self.insert_constraints_from_hidden_sets_box_cache()?;
-            }
-        }
-        Ok(())
-    }
-
-    fn insert_constraints_from_hidden_sets_row_cache(&mut self) -> Result<(), BoardNotSolvableError> {
-        unsafe {
-            let this = self as *mut Self;
-            Self::insert_constraints_from_hidden_sets_cache_raw(this, &self.hidden_sets_row_cache)?;
-        }
-        Ok(())
-    }
-
-    fn insert_constraints_from_hidden_sets_col_cache(&mut self) -> Result<(), BoardNotSolvableError> {
-        unsafe {
-            let this = self as *mut Self;
-            Self::insert_constraints_from_hidden_sets_cache_raw(this, &self.hidden_sets_col_cache)?;
-        }
-
-        Ok(())
-    }
-
-    fn insert_constraints_from_hidden_sets_box_cache(&mut self) -> Result<(), BoardNotSolvableError> {
-        unsafe {
-            let this = self as *mut Self;
-            Self::insert_constraints_from_hidden_sets_cache_raw(this, &self.hidden_sets_box_cache)?;
-        }
-        Ok(())
-    }
-
-    unsafe fn insert_constraints_from_hidden_sets_cache_raw(
-        this: *mut Self,
-        hidden_sets_cache: &FxHashMap<ConstraintList, Vec<BoardPosition>>,
-    ) -> Result<(), BoardNotSolvableError> {
-        for (cons, occurrences) in hidden_sets_cache {
-            // we have found a subset of length `k` that is occurring exactly `k` times
-            if cons.len() > 1 && cons.len() as usize == occurrences.len() {
-                for _position in occurrences {
-                    // also remove from all the boxes
-                    // we do this here because every cell from the occurrence list could be in different squares
-                    // (*this).dbg_missing();
-                    // (*this).remove_all_cons_at_pos(*row_index, *col_index, *cons);
-                    // (*this).insert_cons_at_pos(*row_index, *col_index, *cons);
-                    // println!("we fucked up");
-                }
-            }
-        }
-
-        // PERF(Simon): Maybe it is beneficial to first insert all hidden subsets with 2 =< k =< 4.
-        // PERF(Simon): This could allow us to find more hidden singles while forward propagation due to a reduced search space.
-        for (cons, occurrences) in hidden_sets_cache {
-            // hidden singles
-            if let Some(num) = cons.naked_single() && occurrences.len() == 1 {
-                let position = occurrences[0];
-                (*this).insert_and_forward_propagate(num, position, Origin::Unspecified)?;
-            }
-        }
-
-        Ok(())
-    }
-
     const fn calculate_box_position(position: BoardPosition) -> usize {
         let row_index = position.row_index;
         let col_index = position.col_index;
 
         (row_index / 3) * 3 + col_index / 3
     }
-
-    // fn remove_all_cons_at_pos(&mut self, row_index: usize, col_index: usize, to_remove: ConstraintList) {
-    //     let square_position = Self::calculate_square_position(row_index, col_index);
-
-    //     self.row_missing[row_index].remove_all(to_remove);
-    //     self.col_missing[col_index].remove_all(to_remove);
-    //     self.square_missing[square_position].remove_all(to_remove);
-    // }
 
     fn remove_cons_at_pos(&mut self, to_remove: SudokuNum, position: BoardPosition) {
         let row_index = position.row_index;
@@ -576,49 +392,26 @@ impl Solver {
         self.box_missing[box_position].remove(to_remove);
     }
 
-    // propagate constraints
-    pub fn partially_propagate_constraints(&mut self) {
-        self.partially_propagate_row_constraints();
-        self.partially_propagate_col_constraints();
-        self.partially_propagate_box_constraints();
+    fn partially_propagate_constraints(&mut self) {
+        for i in 0..9 {
+            Self::partially_propagate_constraints_iter(&self.board, RowIter::new(i), &mut self.row_missing[i]);
+            Self::partially_propagate_constraints_iter(&self.board, ColIter::new(i), &mut self.col_missing[i]);
+            Self::partially_propagate_constraints_iter(&self.board, BoxIter::new(i), &mut self.box_missing[i]);
+        }
     }
 
-    fn partially_propagate_row_constraints(&mut self) {
-        for row_index in 0..9 {
-            let mut found_nums = ConstraintList::empty();
-            for position in RowIter::new(row_index) {
-                let cell = self.board[position];
-                if let Cell::Number(n) = cell {
-                    found_nums.insert(n);
-                }
+    fn partially_propagate_constraints_iter<I>(board: &Board, iter: I, missing_list: &mut ConstraintList)
+    where
+        I: IntoIterator<Item = BoardPosition>,
+    {
+        let mut cons = ConstraintList::full();
+        for position in iter {
+            let cell = board[position];
+            if let Cell::Number(n) = cell {
+                cons.remove(n);
             }
-
-            self.row_missing[row_index].remove_all(found_nums);
         }
-    }
-    fn partially_propagate_col_constraints(&mut self) {
-        for col_index in 0..9 {
-            let mut found_nums = ConstraintList::empty();
-            for position in ColIter::new(col_index) {
-                let cell = self.board[position];
-                if let Cell::Number(n) = cell {
-                    found_nums.insert(n);
-                }
-            }
-            self.col_missing[col_index].remove_all(found_nums);
-        }
-    }
-    fn partially_propagate_box_constraints(&mut self) {
-        for box_position in 0..9 {
-            let mut found_nums = ConstraintList::empty();
-            for position in BoxIter::new(box_position) {
-                let cell = self.board[position];
-                if let Cell::Number(n) = cell {
-                    found_nums.insert(n);
-                }
-            }
-            self.box_missing[box_position].remove_all(found_nums);
-        }
+        *missing_list = cons;
     }
 
     fn insert_and_forward_propagate(
@@ -633,17 +426,29 @@ impl Solver {
             let cons = self.constraints_at(position);
             // dbg!(cons);
             // dbg!(self.get_constrained_board());
-            debug_assert!(
-                cons.contains(number),
-                "the placement of a number has to be at least partially valid :: {} : {:?}",
-                number,
-                (position.row_index, position.col_index),
-            );
+
             let cell = self.board[position];
+
+            if position.row_index == 6 && position.col_index == 5 {
+                debug_assert_matches!(cell, Cell::Free if cons.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?}\n{:?}", number, (position.row_index, position.col_index), self.get_constrained_board());
+                // dbg!(self.get_constrained_board());
+                // panic!();
+            }
+            // debug_assert_eq!(cell, Cell::Free);
+            // debug_assert_eq!(
+            //     cons.contains(number),
+            //     true,
+            //     "the placement of a number has to be at least partially valid :: {} : {:?}\n{:?}",
+            //     number,
+            //     (position.row_index, position.col_index),
+            //     self.get_constrained_board(),
+            // );
 
             // dbg!(&self.hidden_sets_square_cache);
             // dbg!((row_index, col_index, num));
-            debug_assert_matches!(cell, Cell::Free if cons.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?}", number, (position.row_index, position.col_index));
+            // dbg!(&self.trace.root);
+            debug_assert_matches!(cell, Cell::Free if cons.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?}\n{:?}", number, (position.row_index, position.col_index), self.get_constrained_board());
+            // debug_assert_matches!(cell, _ if true, "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?}\n{:?}", number, (position.row_index, position.col_index), self.get_constrained_board());
         }
 
         #[cfg(feature = "tracing")]
@@ -914,6 +719,8 @@ mod test {
         let res = solver.solve();
 
         assert_matches!(res, Ok(b) if b.is_solved() && b == board_solution);
+
+        #[cfg(feature = "visualize")]
         visualize_trace(&solver.trace, "render/board_1.gv");
     }
 
@@ -946,7 +753,9 @@ mod test {
         let mut solver = Solver::new(board_4);
         let res = solver.solve();
 
+        #[cfg(feature = "visualize")]
         visualize_trace(&solver.trace, "render/board_4.gv");
+
         assert_matches!(res, Ok(b) if b.is_solved() && b == board_4_solution)
     }
 

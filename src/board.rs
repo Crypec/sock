@@ -286,7 +286,6 @@ impl ConstraintList {
 impl fmt::Debug for Board {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let table = self.0.table().bold(true).display().unwrap();
-
         write!(f, "\n{table}\n")
     }
 }

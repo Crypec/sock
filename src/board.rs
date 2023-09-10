@@ -17,12 +17,12 @@ impl Board {
         for i in 0..9 {
             // check if all the numbers are present in the rows
             {
-                let mut required_nums = ConstraintList::full();
+                let mut required_nums = PencilMarks::full();
                 for index in RowIter::new(i) {
                     let cell = self[index];
                     match cell {
                         Cell::Number(n) => required_nums.remove(n),
-                        Cell::Free => return false,
+                        Cell::Marked(_) => return false,
                     };
                 }
                 if !required_nums.is_empty() {
@@ -32,7 +32,7 @@ impl Board {
 
             // check if all the numbers are present in the columns
             {
-                let mut required_nums = ConstraintList::full();
+                let mut required_nums = PencilMarks::full();
                 for index in ColIter::new(i) {
                     let cell = self[index];
                     if let Cell::Number(n) = cell {
@@ -46,7 +46,7 @@ impl Board {
 
             // check if all the numbers are present in the squares
             {
-                let mut required_nums = ConstraintList::full();
+                let mut required_nums = PencilMarks::full();
                 for index in BoxIter::new(i) {
                     let cell = self[index];
                     if let Cell::Number(n) = cell {
@@ -66,7 +66,7 @@ impl Board {
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Cell {
     Number(SudokuNum),
-    Free,
+    Marked(PencilMarks),
 }
 
 #[derive(Hash, Copy, Clone, Eq, PartialEq)]
@@ -110,31 +110,31 @@ impl IndexMut<BigBoardPosition> for Board {
     }
 }
 
-pub struct BoardWithConstraints(pub [[CellWithConstraints; 9]; 9]);
+// pub struct BoardWithConstraints(pub [[CellWithConstraints; 9]; 9]);
 
-impl BoardWithConstraints {
-    #[inline(always)]
-    pub const fn new() -> Self {
-        Self([[CellWithConstraints::Free; 9]; 9])
-    }
-}
+// impl BoardWithConstraints {
+//     #[inline(always)]
+//     pub const fn new() -> Self {
+//         Self([[CellWithConstraints::Free; 9]; 9])
+//     }
+// }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum CellWithConstraints {
-    Number(SudokuNum),
-    Constrained(ConstraintList),
-    Free,
-}
+// #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+// pub enum CellWithConstraints {
+//     Number(SudokuNum),
+//     Constrained(ConstraintList),
+//     Free,
+// }
 
-impl fmt::Display for CellWithConstraints {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Number(n) => write!(f, "{n}"),
-            Self::Constrained(cons) => write!(f, "{cons:?}"),
-            Self::Free => write!(f, "."),
-        }
-    }
-}
+// impl fmt::Display for CellWithConstraints {
+//     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+//         match self {
+//             Self::Number(n) => write!(f, "{n}"),
+//             Self::Constrained(cons) => write!(f, "{cons:?}"),
+//             Self::Free => write!(f, "."),
+//         }
+//     }
+// }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::EnumCount)]
 pub enum SudokuNum {
@@ -194,7 +194,7 @@ impl From<u8> for SudokuNum {
     }
 }
 
-impl From<SudokuNum> for ConstraintList {
+impl From<SudokuNum> for PencilMarks {
     #[inline(always)]
     fn from(num: SudokuNum) -> Self {
         let mut res = Self::empty();
@@ -204,9 +204,9 @@ impl From<SudokuNum> for ConstraintList {
 }
 
 #[derive(Hash, Copy, Clone, Eq, PartialEq)]
-pub struct ConstraintList(pub U9BitArray);
+pub struct PencilMarks(pub U9BitArray);
 
-impl ConstraintList {
+impl PencilMarks {
     #[inline(always)]
     pub const fn full() -> Self {
         Self(U9BitArray::new(0b_0000_0001_1111_1111))
@@ -297,13 +297,13 @@ impl fmt::Debug for Board {
     }
 }
 
-impl fmt::Debug for BoardWithConstraints {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let table = self.0.table().bold(true).display().unwrap();
+// impl fmt::Debug for BoardWithConstraints {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         let table = self.0.table().bold(true).display().unwrap();
 
-        write!(f, "\n{table}\n")
-    }
-}
+//         write!(f, "\n{table}\n")
+//     }
+// }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[rustc_layout_scalar_valid_range_end(0b0000_00001_1111_1111)]
@@ -519,7 +519,7 @@ pub struct CombinationsIter {
 }
 
 impl Iterator for CombinationsIter {
-    type Item = ConstraintList;
+    type Item = PencilMarks;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current <= self.bits {
@@ -529,7 +529,7 @@ impl Iterator for CombinationsIter {
                 let tmp = self.current & (!self.current + 1);
                 let mobile = self.current + tmp;
                 self.current = (((mobile ^ self.current) >> 2) / tmp) | mobile;
-                return Some(ConstraintList::from_raw_bits(result));
+                return Some(PencilMarks::from_raw_bits(result));
             }
             let tmp = self.current & (!self.current + 1);
             let mobile = self.current + tmp;
@@ -539,12 +539,24 @@ impl Iterator for CombinationsIter {
     }
 }
 
-pub struct ConstraintListIter {
+pub struct PencilMarksIter {
     bits: U9BitArray,
 }
 
-impl Iterator for ConstraintListIter {
+impl Iterator for PencilMarksIter {
     type Item = SudokuNum;
+
+    // fn next(&mut self) -> Option<Self::Item> {
+    //     if self.bits.0 == 0 {
+    //         None
+    //     } else {
+    //         let out = self.bits.0.trailing_zeros();
+    //         unsafe {
+    //             self.bits.0 ^= 1 << out;
+    //         }
+    //         ((out + 1) as usize).try_into().ok()
+    //     }
+    // }
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.bits.0 == 0 {
@@ -559,24 +571,24 @@ impl Iterator for ConstraintListIter {
     }
 }
 
-impl IntoIterator for ConstraintList {
+impl IntoIterator for PencilMarks {
     type Item = SudokuNum;
-    type IntoIter = ConstraintListIter;
+    type IntoIter = PencilMarksIter;
 
-    fn into_iter(self) -> ConstraintListIter {
-        ConstraintListIter { bits: self.0 }
+    fn into_iter(self) -> PencilMarksIter {
+        PencilMarksIter { bits: self.0 }
     }
 }
 
-impl<'a> IntoIterator for &'a ConstraintList {
+impl<'a> IntoIterator for &'a PencilMarks {
     type Item = SudokuNum;
-    type IntoIter = ConstraintListIter;
+    type IntoIter = PencilMarksIter;
 
-    fn into_iter(self) -> ConstraintListIter {
-        ConstraintListIter { bits: self.0 }
+    fn into_iter(self) -> PencilMarksIter {
+        PencilMarksIter { bits: self.0 }
     }
 }
-impl std::fmt::Debug for ConstraintList {
+impl std::fmt::Debug for PencilMarks {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
         let cons = &self.into_iter().map(|n| n as u8).collect::<Vec<u8>>();
         write!(f, "{cons:?}")
@@ -587,20 +599,20 @@ impl fmt::Display for Cell {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{n}"),
-            Self::Free => write!(f, "."),
+            Self::Marked(cons) => write!(f, "{:?}", cons),
         }
     }
 }
 
 pub fn parse_board(board: Vec<Vec<char>>) -> Board {
-    let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Free));
+    let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Marked(PencilMarks::empty())));
 
     for row_index in 0..9 {
         for col_index in 0..9 {
             let char_cell = board[row_index][col_index];
             let cell = match char_cell {
                 '0'..='9' => Cell::Number(parse_char_to_sudoku_num(char_cell)),
-                '.' => Cell::Free,
+                '.' => Cell::Marked(PencilMarks::empty()),
                 _ => panic!("invalid char"),
             };
             new_board[row_index][col_index] = cell;
@@ -627,13 +639,13 @@ pub fn parse_char_to_sudoku_num(c: char) -> SudokuNum {
 
 pub fn parse_board_from_line(line: &str) -> Board {
     debug_assert_eq!(line.len(), 81);
-    let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Free));
+    let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Marked(PencilMarks::empty())));
     for (row_index, row) in new_board.iter_mut().enumerate() {
         for (col_index, cell) in row.iter_mut().enumerate() {
             let char_cell = (line.as_bytes()[(row_index * 9) + col_index]) as char;
             let new_cell = match char_cell {
                 '1'..='9' => Cell::Number(parse_char_to_sudoku_num(char_cell)),
-                '.' | '0' => Cell::Free,
+                '.' | '0' => Cell::Marked(PencilMarks::empty()),
                 _ => panic!("invalid char"),
             };
             *cell = new_cell;
@@ -651,19 +663,19 @@ mod test {
 
     #[test]
     fn constraint_list_full() {
-        let list = ConstraintList::full();
+        let list = PencilMarks::full();
         assert_eq!(list.0 .0, 0b_0000_0001_1111_1111);
     }
 
     #[test]
     fn constraint_list_empty() {
-        let list = ConstraintList::empty();
+        let list = PencilMarks::empty();
         assert_eq!(list.0 .0, 0b_0000_0000_0000_0000);
     }
 
     #[test]
     fn constraint_list_is_empty() {
-        let mut list = ConstraintList::empty();
+        let mut list = PencilMarks::empty();
         assert!(list.is_empty());
 
         list.insert(SudokuNum::One);
@@ -672,55 +684,55 @@ mod test {
 
     #[test]
     fn naked_singles_full() {
-        let list = ConstraintList::full();
+        let list = PencilMarks::full();
         assert_matches!(list.naked_single(), None);
     }
 
     #[test]
     fn naked_singles_empty() {
-        let list = ConstraintList::empty();
+        let list = PencilMarks::empty();
         assert_matches!(list.naked_single(), None);
     }
 
     #[test]
     fn constraint_list_insert() {
-        let mut list = ConstraintList::empty();
+        let mut list = PencilMarks::empty();
         list.insert(SudokuNum::One);
         assert_eq!(list.0 .0, 0b_0000_0000_0000_0001);
     }
 
     #[test]
     fn constraint_list_naked_single_1() {
-        let mut list = ConstraintList::empty();
+        let mut list = PencilMarks::empty();
         list.insert(SudokuNum::One);
         assert_matches!(list.naked_single(), Some(SudokuNum::One));
     }
 
     #[test]
     fn constraint_list_naked_single_2() {
-        let mut list = ConstraintList::from_raw_bits(0b_0000_0000_0010_0010);
+        let mut list = PencilMarks::from_raw_bits(0b_0000_0000_0010_0010);
         list.insert(SudokuNum::One);
         assert_matches!(list.naked_single(), None);
     }
 
     #[test]
     fn constraint_list_remove() {
-        let mut list = ConstraintList::full();
+        let mut list = PencilMarks::full();
         list.remove(SudokuNum::One);
         assert_eq!(list.0 .0, 0b_0000_0001_1111_1110);
     }
 
     #[test]
     fn constraint_list_remove_all() {
-        let mut list1 = ConstraintList::full();
-        let list2 = ConstraintList(U9BitArray::new(0b_0000_0000_0000_1111));
+        let mut list1 = PencilMarks::full();
+        let list2 = PencilMarks(U9BitArray::new(0b_0000_0000_0000_1111));
         list1.remove_all(list2);
         assert_eq!(list1.0 .0, 0b_0000_0001_1111_0000);
     }
 
     #[test]
     fn constraint_list_contains() {
-        let mut list = ConstraintList::empty();
+        let mut list = PencilMarks::empty();
         list.insert(SudokuNum::One);
         assert!(list.contains(SudokuNum::One));
         assert!(!list.contains(SudokuNum::Two));
@@ -728,24 +740,24 @@ mod test {
 
     #[test]
     fn constraint_list_contains_all() {
-        let mut list = ConstraintList::empty();
+        let mut list = PencilMarks::empty();
         list.insert(SudokuNum::One);
         assert!(list.contains(SudokuNum::One));
         assert!(!list.contains(SudokuNum::Two));
 
-        let full = ConstraintList::full();
+        let full = PencilMarks::full();
         assert!(!list.contains_all(full));
 
-        let sparse = ConstraintList::from_raw_bits(0b_0000_0001_0010_1110);
-        assert!(sparse.contains_all(ConstraintList::from_raw_bits(0b_0000_0001_0010_1110)));
+        let sparse = PencilMarks::from_raw_bits(0b_0000_0001_0010_1110);
+        assert!(sparse.contains_all(PencilMarks::from_raw_bits(0b_0000_0001_0010_1110)));
 
-        let subset = ConstraintList::from_raw_bits(0b_0000_0001_0010_1110);
-        assert!(!subset.contains_all(ConstraintList::from_raw_bits(0b_0000_0001_1110_1110)));
+        let subset = PencilMarks::from_raw_bits(0b_0000_0001_0010_1110);
+        assert!(!subset.contains_all(PencilMarks::from_raw_bits(0b_0000_0001_1110_1110)));
     }
 
     #[test]
     fn constraint_list_len() {
-        let mut list = ConstraintList::empty();
+        let mut list = PencilMarks::empty();
         assert_eq!(list.len(), 0);
 
         list.insert(SudokuNum::One);
@@ -757,31 +769,31 @@ mod test {
 
     #[test]
     fn intersection_empty() {
-        let c0 = ConstraintList::empty();
-        let c1 = ConstraintList::empty();
-        let c2 = ConstraintList::empty();
+        let c0 = PencilMarks::empty();
+        let c1 = PencilMarks::empty();
+        let c2 = PencilMarks::empty();
 
-        assert_eq!(ConstraintList::intersection(c0, c1, c2), ConstraintList::empty())
+        assert_eq!(PencilMarks::intersection(c0, c1, c2), PencilMarks::empty())
     }
 
     #[test]
     fn intersection_full() {
-        let c0 = ConstraintList::full();
-        let c1 = ConstraintList::full();
-        let c2 = ConstraintList::full();
+        let c0 = PencilMarks::full();
+        let c1 = PencilMarks::full();
+        let c2 = PencilMarks::full();
 
-        assert_eq!(ConstraintList::intersection(c0, c1, c2), ConstraintList::full())
+        assert_eq!(PencilMarks::intersection(c0, c1, c2), PencilMarks::full())
     }
 
     #[test]
     fn intersection_1() {
-        let c0 = ConstraintList::from_raw_bits(0b_0000_0001_1100_0101);
-        let c1 = ConstraintList::from_raw_bits(0b_0000_0000_1000_0101);
-        let c2 = ConstraintList::from_raw_bits(0b_0000_0001_1000_0100);
+        let c0 = PencilMarks::from_raw_bits(0b_0000_0001_1100_0101);
+        let c1 = PencilMarks::from_raw_bits(0b_0000_0000_1000_0101);
+        let c2 = PencilMarks::from_raw_bits(0b_0000_0001_1000_0100);
 
         assert_eq!(
-            ConstraintList::intersection(c0, c1, c2),
-            ConstraintList::from_raw_bits(0b_0000_0000_1000_0100)
+            PencilMarks::intersection(c0, c1, c2),
+            PencilMarks::from_raw_bits(0b_0000_0000_1000_0100)
         );
     }
 
@@ -827,162 +839,162 @@ mod test {
 
     #[test]
     fn combinations_iter() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1011);
-        let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_0000_1011);
+        let results = cons.combinations(2).collect::<Vec<PencilMarks>>();
 
         dbg!(cons);
         assert_eq!(
             results,
             vec![
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0011),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1001),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1010),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0011),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1001),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1010),
             ]
         );
     }
 
     #[test]
     fn combinations_iter_single_bit() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1000);
-        let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_0000_1000);
+        let results = cons.combinations(1).collect::<Vec<PencilMarks>>();
 
         dbg!(cons);
-        assert_eq!(results, vec![ConstraintList::from_raw_bits(0b0000_0000_0000_1000)]);
+        assert_eq!(results, vec![PencilMarks::from_raw_bits(0b0000_0000_0000_1000)]);
     }
 
     #[test]
     fn combinations_iter_no_bits() {
-        let mut iter = ConstraintList::from_raw_bits(0b0000_0000_0000_0000).combinations(1);
+        let mut iter = PencilMarks::from_raw_bits(0b0000_0000_0000_0000).combinations(1);
 
         assert_eq!(iter.next(), None);
     }
     #[test]
     fn combinations_iter_k3() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1111);
-        let results = cons.combinations(3).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_0000_1111);
+        let results = cons.combinations(3).collect::<Vec<PencilMarks>>();
 
         dbg!(cons);
         assert_eq!(
             results,
             vec![
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0111),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1011),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1101),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1110),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0111),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1011),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1101),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1110),
             ]
         );
     }
 
     #[test]
     fn combinations_iter_k4() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1111);
-        let results = cons.combinations(4).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_0000_1111);
+        let results = cons.combinations(4).collect::<Vec<PencilMarks>>();
 
         dbg!(cons);
-        assert_eq!(results, vec![ConstraintList::from_raw_bits(0b0000_0000_0000_1111),]);
+        assert_eq!(results, vec![PencilMarks::from_raw_bits(0b0000_0000_0000_1111),]);
     }
 
     #[test]
     fn combinations_iter_k1_multiple_bits() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1111);
-        let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_0000_1111);
+        let results = cons.combinations(1).collect::<Vec<PencilMarks>>();
 
         assert_eq!(
             results,
             vec![
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0001),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0010),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0100),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1000),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0001),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0010),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0100),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1000),
             ]
         );
     }
 
     #[test]
     fn combinations_iter_k1_full() {
-        let cons = ConstraintList::full();
-        let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::full();
+        let results = cons.combinations(1).collect::<Vec<PencilMarks>>();
 
         assert_eq!(
             results,
             vec![
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0001),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0010),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0100),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1000),
-                ConstraintList::from_raw_bits(0b0000_0000_0001_0000),
-                ConstraintList::from_raw_bits(0b0000_0000_0010_0000),
-                ConstraintList::from_raw_bits(0b0000_0000_0100_0000),
-                ConstraintList::from_raw_bits(0b0000_0000_1000_0000),
-                ConstraintList::from_raw_bits(0b0000_0001_0000_0000),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0001),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0010),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0100),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1000),
+                PencilMarks::from_raw_bits(0b0000_0000_0001_0000),
+                PencilMarks::from_raw_bits(0b0000_0000_0010_0000),
+                PencilMarks::from_raw_bits(0b0000_0000_0100_0000),
+                PencilMarks::from_raw_bits(0b0000_0000_1000_0000),
+                PencilMarks::from_raw_bits(0b0000_0001_0000_0000),
             ]
         );
     }
 
     #[test]
     fn combinations_iter_k1_single_bit_high() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_1000_0000);
-        let results = cons.combinations(1).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_1000_0000);
+        let results = cons.combinations(1).collect::<Vec<PencilMarks>>();
 
-        assert_eq!(results, vec![ConstraintList::from_raw_bits(0b0000_0000_1000_0000)]);
+        assert_eq!(results, vec![PencilMarks::from_raw_bits(0b0000_0000_1000_0000)]);
     }
 
     #[test]
     fn combinations_iter_k1_no_bits_high() {
-        let mut iter = ConstraintList::from_raw_bits(0b0000_0000_0000_0000).combinations(1);
+        let mut iter = PencilMarks::from_raw_bits(0b0000_0000_0000_0000).combinations(1);
 
         assert_eq!(iter.next(), None);
     }
     #[test]
     fn combinations_iter_k2_multiple_bits() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_0001_1111);
-        let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_0001_1111);
+        let results = cons.combinations(2).collect::<Vec<PencilMarks>>();
 
         dbg!(&cons);
 
         assert_eq!(
             results,
             vec![
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0011),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0101),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_0110),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1001),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1010),
-                ConstraintList::from_raw_bits(0b0000_0000_0000_1100),
-                ConstraintList::from_raw_bits(0b0000_0000_0001_0001),
-                ConstraintList::from_raw_bits(0b0000_0000_0001_0010),
-                ConstraintList::from_raw_bits(0b0000_0000_0001_0100),
-                ConstraintList::from_raw_bits(0b0000_0000_0001_1000),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0011),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0101),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_0110),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1001),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1010),
+                PencilMarks::from_raw_bits(0b0000_0000_0000_1100),
+                PencilMarks::from_raw_bits(0b0000_0000_0001_0001),
+                PencilMarks::from_raw_bits(0b0000_0000_0001_0010),
+                PencilMarks::from_raw_bits(0b0000_0000_0001_0100),
+                PencilMarks::from_raw_bits(0b0000_0000_0001_1000),
             ]
         );
     }
 
     #[test]
     fn combinations_iter_k2_single_bit_high() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_1000_0001);
-        let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_1000_0001);
+        let results = cons.combinations(2).collect::<Vec<PencilMarks>>();
 
-        assert_eq!(results, vec![ConstraintList::from_raw_bits(0b0000_0000_1000_0001)]);
+        assert_eq!(results, vec![PencilMarks::from_raw_bits(0b0000_0000_1000_0001)]);
     }
 
     #[test]
     fn combinations_iter_k2_no_bits_high() {
-        let mut iter = ConstraintList::from_raw_bits(0b0000_0000_0000_0000).combinations(2);
+        let mut iter = PencilMarks::from_raw_bits(0b0000_0000_0000_0000).combinations(2);
 
         assert_eq!(iter.next(), None);
     }
 
     #[test]
     fn combinations_iter_k2_single_bit() {
-        let cons = ConstraintList::from_raw_bits(0b0000_0000_0000_1000);
-        let results = cons.combinations(2).collect::<Vec<ConstraintList>>();
+        let cons = PencilMarks::from_raw_bits(0b0000_0000_0000_1000);
+        let results = cons.combinations(2).collect::<Vec<PencilMarks>>();
 
         assert_eq!(results, vec![]);
     }
 
     #[test]
     fn constraint_list_iter() {
-        let it = ConstraintList::from_raw_bits(0b0000_0000_1001_1000).into_iter();
+        let it = PencilMarks::from_raw_bits(0b0000_0000_1001_1000).into_iter();
         let results = it.collect::<Vec<SudokuNum>>();
 
         assert_eq!(results, vec![SudokuNum::Four, SudokuNum::Five, SudokuNum::Eight]);

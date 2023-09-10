@@ -1,4 +1,4 @@
-use crate::board::{BigBoardPosition, BoardWithConstraints, CellWithConstraints, SudokuNum};
+use crate::board::{BigBoardPosition, Board, Cell, SudokuNum};
 use crate::solver::tracing::*;
 
 pub fn visualize_trace<'p, P>(trace: &Trace, path: P)
@@ -6,7 +6,7 @@ where
     P: AsRef<std::path::Path>,
 {
     dbg!(&trace.events);
-    let root_board = emit_board(&trace.root.as_ref().expect("no root board set"), "root");
+    let root_board = emit_board(&trace.root, "root");
 
     let boards = trace
         .events
@@ -96,12 +96,12 @@ fn emit_insert_label(origin: &Origin, index: &BigBoardPosition, number: &SudokuN
     format!(r#"[ label ="{origin_text} :: {number} : {index}" ]"#)
 }
 
-fn emit_board(board: &BoardWithConstraints, name: &str) -> String {
+fn emit_board(board: &Board, name: &str) -> String {
     let board_table = emit_board_table(&board);
     format!("{name} [label=<\n    {board_table}\n        >];")
 }
 
-fn emit_board_table(board: &BoardWithConstraints) -> String {
+fn emit_board_table(board: &Board) -> String {
     let trs = board
         .0
         .iter()
@@ -115,13 +115,12 @@ fn emit_board_table(board: &BoardWithConstraints) -> String {
     )
 }
 
-fn emit_row(row: &[CellWithConstraints]) -> String {
+fn emit_row(row: &[Cell]) -> String {
     let tds = row
         .iter()
         .map(|cell| match cell {
-            CellWithConstraints::Number(num) => format!("                    <TD>{num}</TD>"),
-            CellWithConstraints::Constrained(cons) => format!("                    <TD>{:?}</TD>", cons),
-            CellWithConstraints::Free => format!("                    <TD></TD>"),
+            Cell::Number(num) => format!("                    <TD>{num}</TD>"),
+            Cell::Marked(cons) => format!("                    <TD>{:?}</TD>", cons),
         })
         .collect::<Vec<String>>()
         .join("\n");

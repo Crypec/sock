@@ -19,6 +19,7 @@ use std::assert_matches::assert_matches;
 
 mod board;
 mod solver;
+
 mod visualize;
 
 #[cfg(feature = "dhat-heap")]
@@ -57,9 +58,9 @@ fn main() {
             let mut solver = Solver::new(board);
             let res = solver.solve();
 
-            println!("solved: {index} :: {:?}", now.elapsed());
-
             assert_matches!(res, Ok(b) if b.is_solved());
+
+            println!("solved: {index} :: {:?}", now.elapsed());
         }
     }
 

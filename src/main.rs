@@ -1,5 +1,5 @@
 #![warn(clippy::nursery)]
-#![warn(clippy::pedantic)]
+// #![warn(clippy::pedantic)]
 #![allow(internal_features)]
 #![feature(rustc_attrs)]
 #![feature(associated_type_bounds)]
@@ -10,7 +10,7 @@
 
 // #![warn(clippy::restriction)]
 
-use crate::board::{Board, parse_board_from_line};
+use crate::board::{parse_board_from_line, Board};
 use crate::solver::Solver;
 
 #[cfg(not(feature = "no-jobs"))]

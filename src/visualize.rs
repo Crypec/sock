@@ -1,5 +1,5 @@
 use crate::board::{BigBoardPosition, Board, Cell, SudokuNum};
-use crate::solver::tracing::*;
+use crate::solver::tracing::{Event, Origin, Trace};
 
 pub fn visualize_trace<'p, P>(trace: &Trace, path: P)
 where
@@ -63,7 +63,7 @@ fn emit_edges(events: &[Event]) -> String {
 
                 current_index += 1;
 
-                let insert_label = emit_insert_label(origin, position, number);
+                let insert_label = emit_insert_label(*origin, *position, *number);
                 let edge = format!("b_{prev_index} -> b_{current_index} {insert_label}");
 
                 prev_index = current_index;
@@ -83,7 +83,7 @@ fn emit_edges(events: &[Event]) -> String {
     edges.join("\n")
 }
 
-fn emit_insert_label(origin: &Origin, index: &BigBoardPosition, number: &SudokuNum) -> String {
+fn emit_insert_label(origin: Origin, index: BigBoardPosition, number: SudokuNum) -> String {
     let origin_text = match origin {
         Origin::Unspecified => "unspecified",
         Origin::NakedSingle => "naked single",
@@ -97,7 +97,7 @@ fn emit_insert_label(origin: &Origin, index: &BigBoardPosition, number: &SudokuN
 }
 
 fn emit_board(board: &Board, name: &str) -> String {
-    let board_table = emit_board_table(&board);
+    let board_table = emit_board_table(board);
     format!("{name} [label=<\n    {board_table}\n        >];")
 }
 

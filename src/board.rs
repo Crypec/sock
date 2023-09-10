@@ -624,12 +624,12 @@ impl fmt::Display for Cell {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{n}"),
-            Self::Marked(cons) => write!(f, "{:?}", cons),
+            Self::Marked(cons) => write!(f, "{cons:?}"),
         }
     }
 }
 
-pub fn parse_board(board: Vec<Vec<char>>) -> Board {
+#[must_use] pub fn parse_board(board: Vec<Vec<char>>) -> Board {
     let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Marked(PencilMarks::empty())));
 
     for row_index in 0..9 {

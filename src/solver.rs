@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 use strum::EnumCount;
 
 use crate::board::{
-    BigBoardPosition, Board, BoardIter, BoxIter, Cell, ColIter, PencilMarks, PencilMarksIter, RowIter, SudokuNum,
+    BigBoardPosition, Board, BoardIter, BoxIter, Cell, ColIter, PencilMarks, RowIter, SudokuNum,
 };
 
 use tracing::Origin;
@@ -184,12 +184,12 @@ impl Solver {
 
         for (number, position) in to_insert_iter {
             if self.insert_and_forward_propagate(number, position, origin).is_err() {
-                self.restore_state(old_board, old_constraints);
+                self.restore_state(&old_board, old_constraints);
                 return Err(BoardNotSolvableError);
             }
         }
 
-        return match self.solve_internal(depth + 1) {
+        match self.solve_internal(depth + 1) {
             Ok(board) => {
                 #[cfg(feature = "tracing")]
                 {
@@ -200,19 +200,19 @@ impl Solver {
                 Ok(board)
             }
             Err(BoardNotSolvableError) => {
-                self.restore_state(old_board, old_constraints);
+                self.restore_state(&old_board, old_constraints);
                 Err(BoardNotSolvableError)
             }
-        };
+        }
     }
 
     #[inline(always)]
-    fn restore_state(&mut self, old_board: Board, constraints: Vec<Constraint>) {
+    fn restore_state(&mut self, old_board: &Board, constraints: Vec<Constraint>) {
         #[cfg(feature = "tracing")]
         self.trace.events.push(Event::Restore);
 
         self.constraints = constraints;
-        self.board = old_board;
+        self.board = *old_board;
     }
 
     fn insert_hidden_singles(&mut self) -> Result<(), BoardNotSolvableError> {
@@ -534,7 +534,7 @@ impl Solver {
                     (*this).constraints.push(Constraint::NakedPair {
                         marks,
                         positions: (occurrences[0], occurrences[1]),
-                    })
+                    });
                 }
             }
         }
@@ -602,7 +602,7 @@ impl Solver {
                 self.compute_hidden_subsets_row(i);
                 let histogram = self.compute_constraint_histogram_iter(RowIter::new(i));
 
-                let changed = unsafe {
+                let _changed = unsafe {
                     let this = self as *mut Self;
                     Self::insert_constraints_from_hidden_sets_cache_test(this, &self.hidden_sets_row_cache, &histogram)
                 };
@@ -613,7 +613,7 @@ impl Solver {
                 self.compute_hidden_subsets_col(i);
                 let histogram = self.compute_constraint_histogram_iter(ColIter::new(i));
 
-                let changed = unsafe {
+                let _changed = unsafe {
                     let this = self as *mut Self;
                     Self::insert_constraints_from_hidden_sets_cache_test(this, &self.hidden_sets_col_cache, &histogram)
                 };
@@ -624,7 +624,7 @@ impl Solver {
                 self.compute_hidden_subsets_box(i);
                 let histogram = self.compute_constraint_histogram_iter(BoxIter::new(i));
 
-                let changed = unsafe {
+                let _changed = unsafe {
                     let this = self as *mut Self;
                     Self::insert_constraints_from_hidden_sets_cache_test(this, &self.hidden_sets_box_cache, &histogram)
                 };
@@ -649,7 +649,7 @@ enum Constraint {
 }
 
 pub mod tracing {
-    use super::{BoardPosition, BoardWithConstraints, SudokuNum};
+    use super::{Board, BoardPosition, SudokuNum};
 
     #[derive(Debug)]
     pub struct Trace {

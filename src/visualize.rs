@@ -23,7 +23,7 @@ where
             Event::Restore => None,
         })
         .enumerate()
-        .map(|(i, board)| emit_board(&board, &format!("b_{i}")))
+        .map(|(i, board)| emit_board(board, &format!("b_{i}")))
         .collect::<Vec<String>>()
         .join("\n\n\n");
 
@@ -63,7 +63,7 @@ fn emit_edges(events: &[Event]) -> String {
 
                 current_index += 1;
 
-                let insert_label = emit_insert_label(&origin, &position, number);
+                let insert_label = emit_insert_label(origin, position, number);
                 let edge = format!("b_{prev_index} -> b_{current_index} {insert_label}");
 
                 prev_index = current_index;
@@ -74,7 +74,7 @@ fn emit_edges(events: &[Event]) -> String {
                 prev_index = stack.pop().unwrap();
             }
             Event::PartiallyPropagate { board: _ } => {
-                let edge = format!(r#"root -> b_0 [label = "partially propagate constraints"]"#);
+                let edge = r#"root -> b_0 [label = "partially propagate constraints"]"#.to_string();
                 edges.push(edge);
             }
             Event::Solved { board: _ } => {}

@@ -1,3 +1,5 @@
+#![allow(clippy::upper_case_acronyms)]
+
 use rustc_hash::FxHashMap;
 use strum::EnumCount;
 
@@ -41,6 +43,7 @@ impl Solver {
     // because the are only 9 possible numbers in sudoku
     const MCV_CANDIDATE_MAX_LEN: u8 = MAX_NUMBER_COUNT as u8;
 
+    #[must_use]
     pub fn new(board: Board) -> Self {
         let cell_count = board.0.len() * board.0[0].len();
         Self {
@@ -646,7 +649,7 @@ enum Constraint {
 }
 
 pub mod tracing {
-    use super::*;
+    use super::{BoardPosition, BoardWithConstraints, SudokuNum};
 
     #[derive(Debug)]
     pub struct Trace {

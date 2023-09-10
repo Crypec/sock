@@ -5,11 +5,12 @@
 #![feature(associated_type_bounds)]
 #![feature(assert_matches)]
 #![feature(test)]
-// #![allow(dead_code)]
+#![allow(dead_code)]
+#![allow(clippy::inline_always)]
 
 // #![warn(clippy::restriction)]
 
-use crate::board::*;
+use crate::board::{Board, parse_board_from_line};
 use crate::solver::Solver;
 
 #[cfg(not(feature = "no-jobs"))]

@@ -11,3 +11,4 @@ vgcore.*
 /tdoku
 /test_data
 *.profraw
+profile.coz

@@ -1,11 +1,12 @@
 #![allow(clippy::upper_case_acronyms)]
 
 use rustc_hash::FxHashMap;
+use std::rc::Rc;
 use strum::EnumCount;
 
-use crate::board::{
-    BigBoardPosition, Board, BoardIter, BoxIter, Cell, ColIter, PencilMarks, RowIter, SudokuNum,
-};
+use crate::board::{BigBoardPosition, Board, BoardIter, BoxIter, Cell, ColIter, PencilMarks, RowIter, SudokuNum};
+
+use crate::subset_cache::SubSetCache;
 
 use tracing::Origin;
 
@@ -18,17 +19,21 @@ pub struct BoardNotSolvableError;
 
 type HiddenSinglesEntryList = [HiddenSingleEntry; MAX_NUMBER_COUNT];
 // type MissingNumbersList = [ConstraintList; MAX_NUMBER_COUNT];
-type SubSetCache = FxHashMap<PencilMarks, Vec<BoardPosition>>;
+type HashSubSetCache = FxHashMap<PencilMarks, Vec<BoardPosition>>;
+
+type HiddenPairsCache = SubSetCache<2, 2, MAX_NUMBER_COUNT, Vec<BoardPosition>>;
 type Histogram = [u8; MAX_NUMBER_COUNT];
 
 pub struct Solver {
     pub board: Board,
 
-    hidden_sets_row_cache: SubSetCache,
-    hidden_sets_col_cache: SubSetCache,
-    hidden_sets_box_cache: SubSetCache,
+    hidden_sets_row_cache: HashSubSetCache,
+    hidden_sets_col_cache: HashSubSetCache,
+    hidden_sets_box_cache: HashSubSetCache,
 
-    constraints: Vec<Constraint>,
+    hidden_pairs_cache: HiddenPairsCache,
+
+    constraints: Rc<Vec<Constraint>>,
 
     made_progress: bool,
 
@@ -45,16 +50,18 @@ impl Solver {
 
     #[must_use]
     pub fn new(board: Board) -> Self {
-        let cell_count = board.0.len() * board.0[0].len();
+        let cell_count = board.cell_count();
         Self {
             board,
+
+            hidden_pairs_cache: todo!(),
 
             hidden_sets_row_cache: FxHashMap::default(),
             hidden_sets_col_cache: FxHashMap::default(),
             hidden_sets_box_cache: FxHashMap::default(),
 
             // NOTE(Simon): Not sure if this is correct but at the moment we preallocate space for one constraint per cell
-            constraints: Vec::with_capacity(cell_count),
+            constraints: Rc::new(Vec::with_capacity(cell_count)),
 
             mcv_candidate: (Self::MCV_CANDIDATE_MAX_LEN, None),
 
@@ -102,7 +109,7 @@ impl Solver {
             self.made_progress = false;
             self.insert_naked_singles()?;
             self.insert_hidden_singles()?;
-            self.compute_hidden_subsets();
+            self.insert_hidden_pairs();
         }
         if self.is_solved() {
             return Ok(self.board);
@@ -180,7 +187,8 @@ impl Solver {
         I: IntoIterator<Item = (SudokuNum, BoardPosition)>,
     {
         let old_board = self.board;
-        let old_constraints = self.constraints.clone();
+
+        let old_constraints = (*self.constraints).clone();
 
         for (number, position) in to_insert_iter {
             if self.insert_and_forward_propagate(number, position, origin).is_err() {
@@ -211,7 +219,7 @@ impl Solver {
         #[cfg(feature = "tracing")]
         self.trace.events.push(Event::Restore);
 
-        self.constraints = constraints;
+        self.constraints = Rc::new(constraints);
         self.board = *old_board;
     }
 
@@ -453,129 +461,75 @@ impl Solver {
             self.mcv_candidate = (proposed_len, Some(position));
         }
     }
-    fn clear_subset_cache(subset_cache: &mut SubSetCache) {
-        for indexes in &mut subset_cache.values_mut() {
-            indexes.clear();
+
+    fn clear_hidden_pairs_cache(&mut self) {
+        for (_, positions) in self.hidden_pairs_cache.entries_exact_mut(2) {
+            positions.clear();
         }
     }
 
-    fn compute_hidden_subsets_row(&mut self, row_index: usize) {
-        for position in RowIter::new(row_index) {
+    fn insert_pair_combination_positions_into_cache<I>(&mut self, iter: I)
+    where
+        I: Iterator<Item = BoardPosition>,
+    {
+        for position in iter {
             let cell = self.board[position];
             if let Cell::Marked(marks) = cell {
                 for combination in marks.combinations(2) {
-                    self.hidden_sets_row_cache
-                        .entry(combination)
-                        .or_insert_with(|| Vec::with_capacity(9))
-                        .push(position);
+                    unsafe {
+                        self.hidden_pairs_cache
+                            .get_unchecked_mut(combination.into())
+                            .push(position);
+                    }
                 }
             }
         }
     }
 
-    fn compute_hidden_subsets_col(&mut self, col_index: usize) {
-        for position in ColIter::new(col_index) {
-            let cell = self.board[position];
-            if let Cell::Marked(marks) = cell {
-                for combination in marks.combinations(2) {
-                    self.hidden_sets_col_cache
-                        .entry(combination)
-                        .or_insert_with(|| Vec::with_capacity(9))
-                        .push(position);
-                }
-            }
-        }
-    }
-
-    fn compute_hidden_subsets_box(&mut self, box_index: usize) {
-        for position in BoxIter::new(box_index) {
-            let cell = self.board[position];
-            if let Cell::Marked(marks) = cell {
-                for combination in marks.combinations(2) {
-                    self.hidden_sets_box_cache
-                        .entry(combination)
-                        .or_insert_with(|| Vec::with_capacity(9))
-                        .push(position);
-                }
-            }
-        }
-    }
-
-    unsafe fn insert_constraints_from_hidden_sets_cache_test(
-        this: *mut Self,
-        hidden_sets_cache: &SubSetCache,
-        histogram: &Histogram,
-    ) -> bool {
+    fn insert_constraints_from_hidden_pairs(&mut self, histogram: &Histogram) -> bool {
         let mut changed = false;
 
-        for (marks, occurrences) in hidden_sets_cache {
-            // we have found a subset of length `k` that is occurring exactly `k` times
-            // TODO(Simon): allow constraints with len `k` > 2
-            if marks.len() == 2 && marks.len() as usize == occurrences.len() {
-                // let mut is_valid = true;
+        for (marks, occurrences) in self.hidden_pairs_cache.entries_exact(2) {
+            if occurrences.len() == 2 {
                 let occures_exactly_2_times = marks
                     .into_iter()
                     .map(|number| (number as usize) - 1)
                     .fold(true, |acc, num_index| acc & (histogram[num_index] == 2));
                 if occures_exactly_2_times {
+                    self.board[occurrences[0]] = Cell::Marked(marks);
+                    self.board[occurrences[1]] = Cell::Marked(marks);
                     changed = true;
 
-                    for position in occurrences {
-                        // let cell = &mut (*this).board[*position];
-                        (*this).board[*position] = Cell::Marked(*marks);
-                    }
-
-                    // PERFORMANCE(Simon): Because we know that len is 2 we could use `Option::unwrap_unchecked`
                     let marks = {
                         let mut it = marks.into_iter();
-                        (it.next().unwrap(), it.next().unwrap())
+                        let m0 = it.next().unwrap();
+                        let m1 = it.next().unwrap();
+                        (m0, m1)
                     };
 
-                    (*this).constraints.push(Constraint::NakedPair {
-                        marks,
-                        positions: (occurrences[0], occurrences[1]),
-                    });
+                    Rc::get_mut(&mut self.constraints)
+                        .expect("failed to get constraint list")
+                        .push(Constraint::NakedPair {
+                            marks,
+                            positions: (occurrences[0], occurrences[1]),
+                        });
                 }
+
+                // self.add_constraint(Constraint::NakedPair {
+                //     marks,
+                //     positions: (occurrences[0], occurrences[1]),
+                // });
             }
         }
 
         changed
     }
 
-    fn insert_constraints_from_hidden_sets_cache_raw(
-        missing_cache: &mut PencilMarks,
-        hidden_sets_cache: &SubSetCache,
-        histogram: &Histogram,
-    ) -> bool {
-        let mut changed = false;
-
-        for (cons, occurrences) in hidden_sets_cache {
-            // we have found a subset of length `k` that is occurring exactly `k` times
-            // TODO(Simon): allow constraints with len `k` > 2
-            if cons.len() == 2 && cons.len() as usize == occurrences.len() {
-                // let mut is_valid = true;
-                let occures_exactly_2_times = cons
-                    .into_iter()
-                    .map(|number| (number as usize) - 1)
-                    .fold(true, |acc, num_index| acc & (histogram[num_index] == 2));
-                if occures_exactly_2_times {
-                    *missing_cache = *cons;
-                    changed = true;
-                }
-            }
-        }
-
-        changed
-
-        // PERF(Simon): Maybe it is beneficial to first insert all hidden subsets with 2 =< k =< 4.
-        // PERF(Simon): This could allow us to find more hidden singles while forward propagation due to a reduced search space.
-        // for (cons, occurrences) in hidden_sets_cache {
-        //     // hidden singles
-        //     if let Some(num) = cons.naked_single() && occurrences.len() == 1 {
-        //         let (row_index, col_index) = occurrences[0];
-        //         (*this).insert_and_forward_propagate(num, row_index, col_index);
-        //     }
-        // }
+    fn add_constraint(&mut self, constraint: Constraint) {
+        // PERFORMANCE(Simon): could probably replaced with get_unchecked
+        Rc::get_mut(&mut self.constraints)
+            .expect("failed to get constraint list")
+            .push(constraint);
     }
 
     fn compute_constraint_histogram_iter<I>(&self, iter: I) -> Histogram
@@ -595,39 +549,30 @@ impl Solver {
         histogram
     }
 
-    fn compute_hidden_subsets(&mut self) {
+    fn insert_hidden_pairs(&mut self) {
         for i in 0..9 {
             {
-                Self::clear_subset_cache(&mut self.hidden_sets_row_cache);
-                self.compute_hidden_subsets_row(i);
+                self.clear_hidden_pairs_cache();
+                self.insert_pair_combination_positions_into_cache(RowIter::new(i));
                 let histogram = self.compute_constraint_histogram_iter(RowIter::new(i));
 
-                let _changed = unsafe {
-                    let this = self as *mut Self;
-                    Self::insert_constraints_from_hidden_sets_cache_test(this, &self.hidden_sets_row_cache, &histogram)
-                };
+                let _changed = self.insert_constraints_from_hidden_pairs(&histogram);
             }
 
             {
-                Self::clear_subset_cache(&mut self.hidden_sets_col_cache);
-                self.compute_hidden_subsets_col(i);
+                self.clear_hidden_pairs_cache();
+                self.insert_pair_combination_positions_into_cache(ColIter::new(i));
                 let histogram = self.compute_constraint_histogram_iter(ColIter::new(i));
 
-                let _changed = unsafe {
-                    let this = self as *mut Self;
-                    Self::insert_constraints_from_hidden_sets_cache_test(this, &self.hidden_sets_col_cache, &histogram)
-                };
+                let _changed = self.insert_constraints_from_hidden_pairs(&histogram);
             }
 
             {
-                Self::clear_subset_cache(&mut self.hidden_sets_box_cache);
-                self.compute_hidden_subsets_box(i);
+                self.clear_hidden_pairs_cache();
+                self.insert_pair_combination_positions_into_cache(BoxIter::new(i));
                 let histogram = self.compute_constraint_histogram_iter(BoxIter::new(i));
 
-                let _changed = unsafe {
-                    let this = self as *mut Self;
-                    Self::insert_constraints_from_hidden_sets_cache_test(this, &self.hidden_sets_box_cache, &histogram)
-                };
+                let _changed = self.insert_constraints_from_hidden_pairs(&histogram);
             }
         }
     }

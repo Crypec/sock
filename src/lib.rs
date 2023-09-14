@@ -7,7 +7,11 @@
 #![feature(assert_matches)]
 #![feature(test)]
 #![allow(dead_code)]
+#![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
 
 pub mod board;
+mod generated_lut;
 pub mod solver;
+pub mod subset_cache;
 mod visualize;

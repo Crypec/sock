@@ -64,6 +64,11 @@ impl Board {
 
         true
     }
+
+    #[must_use]
+    pub const fn cell_count(&self) -> usize {
+        self.0.len() * self.0[0].len()
+    }
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -208,7 +213,7 @@ impl From<SudokuNum> for PencilMarks {
 }
 
 #[derive(Hash, Copy, Clone, Eq, PartialEq)]
-pub struct PencilMarks(pub U9BitArray);
+pub struct PencilMarks(U9BitArray);
 
 impl PencilMarks {
     #[inline(always)]
@@ -225,7 +230,7 @@ impl PencilMarks {
 
     #[inline(always)]
     #[must_use]
-    const fn from_raw_bits(raw: u16) -> Self {
+    pub const fn from_raw_bits(raw: u16) -> Self {
         Self(U9BitArray::new(raw))
     }
 
@@ -289,12 +294,7 @@ impl PencilMarks {
     #[inline(always)]
     #[must_use]
     pub const fn combinations(self, k: u8) -> CombinationsIter {
-        let current = (1 << k) - 1;
-        CombinationsIter {
-            k,
-            bits: self.0 .0,
-            current,
-        }
+        CombinationsIter::new(self.0 .0, k)
     }
 
     #[inline(always)]
@@ -322,7 +322,7 @@ impl fmt::Debug for Board {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[rustc_layout_scalar_valid_range_end(0b0000_00001_1111_1111)]
 #[rustc_layout_scalar_valid_range_start(0)]
-pub struct U9BitArray(u16);
+pub struct U9BitArray(pub u16);
 
 impl U9BitArray {
     #[inline(always)]
@@ -541,6 +541,13 @@ pub struct CombinationsIter {
     current: u16,
 }
 
+impl CombinationsIter {
+    pub const fn new(bits: u16, k: u8) -> Self {
+        let current = (1 << k) - 1;
+        CombinationsIter { k, bits, current }
+    }
+}
+
 impl Iterator for CombinationsIter {
     type Item = PencilMarks;
 
@@ -605,6 +612,12 @@ impl IntoIterator for PencilMarks {
     }
 }
 
+impl Into<usize> for PencilMarks {
+    fn into(self) -> usize {
+        self.0 .0 as usize
+    }
+}
+
 impl<'a> IntoIterator for &'a PencilMarks {
     type Item = SudokuNum;
     type IntoIter = PencilMarksIter;
@@ -624,12 +637,12 @@ impl fmt::Display for Cell {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{n}"),
-            Self::Marked(cons) => write!(f, "{cons:?}"),
+            Self::Marked(cons) => write!(f, "{:?}", cons),
         }
     }
 }
 
-#[must_use] pub fn parse_board(board: Vec<Vec<char>>) -> Board {
+pub fn parse_board(board: Vec<Vec<char>>) -> Board {
     let mut new_board = std::array::from_fn(|_| std::array::from_fn(|_| Cell::Marked(PencilMarks::empty())));
 
     for row_index in 0..9 {

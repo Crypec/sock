@@ -7,6 +7,7 @@
 #![feature(test)]
 #![allow(dead_code)]
 #![allow(clippy::inline_always)]
+#![feature(generic_const_exprs)]
 
 // #![warn(clippy::restriction)]
 
@@ -16,10 +17,15 @@ use crate::solver::Solver;
 #[cfg(not(feature = "no-jobs"))]
 use rayon::prelude::*;
 
+use rustc_hash::{FxHashSet, FxHasher};
+
 use std::assert_matches::assert_matches;
+use std::collections::HashSet;
+use std::hash::BuildHasherDefault;
 
 mod board;
 mod solver;
+mod subset_cache;
 
 mod visualize;
 

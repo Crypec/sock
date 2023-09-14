@@ -1,10 +1,6 @@
 use std::io::Write;
 use std::process::Command;
 
-struct PencilMark(u16);
-
-const PENCIL_MARK_COMBINATION_LUT: &[&[PencilMark]] = &[&[PencilMark(1)]];
-
 pub struct CombinationsIter {
     k: u32,
     bits: usize,
@@ -75,7 +71,7 @@ fn main() {
     println!("cargo:rerun_if_changed=build.rs");
     generate_combinations_lookup_table((0, 512)).expect("failed to generate lookup file");
 
-    let output = Command::new("cargo")
+    Command::new("cargo")
         .arg("fmt")
         .output()
         .expect("Failed to run cargo fmt");

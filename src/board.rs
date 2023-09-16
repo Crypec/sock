@@ -293,8 +293,10 @@ impl PencilMarks {
 
     #[inline(always)]
     #[must_use]
-    pub const fn combinations(self, k: u8) -> CombinationsIter {
-        CombinationsIter::new(self.0 .0, k)
+    pub const fn combinations(self, k: u8) -> PencilMarkCominationsIter {
+        PencilMarkCominationsIter {
+            it: RawCombinationsIter::new(self.0 .0 as usize, k as u32),
+        }
     }
 
     #[inline(always)]
@@ -325,10 +327,12 @@ impl fmt::Debug for Board {
 pub struct U9BitArray(pub u16);
 
 impl U9BitArray {
+    const MAX: u16 = 0b0000_0001_1111_1111;
+
     #[inline(always)]
     #[must_use]
     pub const fn new(value: u16) -> Self {
-        debug_assert!(value <= 0b0000_0001_1111_1111);
+        debug_assert!(value <= Self::MAX);
         unsafe { Self(value) }
     }
 
@@ -535,31 +539,63 @@ impl Iterator for BoxIter {
     }
 }
 
-pub struct CombinationsIter {
-    k: u8,
-    bits: u16,
-    current: u16,
+pub struct PencilMarkCominationsIter {
+    it: RawCombinationsIter,
 }
 
-impl CombinationsIter {
-    pub const fn new(bits: u16, k: u8) -> Self {
-        let current = (1 << k) - 1;
-        CombinationsIter { k, bits, current }
-    }
-}
-
-impl Iterator for CombinationsIter {
+impl Iterator for PencilMarkCominationsIter {
     type Item = PencilMarks;
 
     fn next(&mut self) -> Option<Self::Item> {
+        self.it.next().map(|n| {
+            debug_assert!(n <= U9BitArray::MAX as usize);
+            PencilMarks::from_raw_bits(n as u16)
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct RawCombinationsIter {
+    k: u32,
+    bits: usize,
+    current: usize,
+}
+
+impl RawCombinationsIter {
+    #[must_use]
+    pub const fn k(&self) -> u32 {
+        self.k
+    }
+
+    #[must_use]
+    pub const fn bits(&self) -> usize {
+        self.bits
+    }
+
+    #[must_use]
+    pub const fn current(&self) -> usize {
+        self.current
+    }
+}
+
+impl RawCombinationsIter {
+    pub const fn new(bits: usize, k: u32) -> Self {
+        let current = (1 << k) - 1;
+        Self { k, bits, current }
+    }
+}
+
+impl Iterator for RawCombinationsIter {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
         while self.current <= self.bits {
-            let k: u32 = self.k.into();
-            if self.current & self.bits == self.current && self.current.count_ones() == k {
+            if self.current & self.bits == self.current && self.current.count_ones() == self.k {
                 let result = self.current;
                 let tmp = self.current & (!self.current + 1);
                 let mobile = self.current + tmp;
                 self.current = (((mobile ^ self.current) >> 2) / tmp) | mobile;
-                return Some(PencilMarks::from_raw_bits(result));
+                return Some(result);
             }
             let tmp = self.current & (!self.current + 1);
             let mobile = self.current + tmp;

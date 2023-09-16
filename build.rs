@@ -51,7 +51,7 @@ fn generate_combinations_lookup_table((lo, hi): (usize, usize)) -> std::io::Resu
     writeln!(f, "#[allow(clippy::unreadable_literal)]")?;
     write!(f, "const COMBINATIONS: [&[&[PencilMarks]]; 3] = [")?;
     for lut in luts {
-        writeln!(f, "&[").unwrap();
+        writeln!(f, "&[")?;
         for bin in lut {
             let nums = bin
                 .iter()

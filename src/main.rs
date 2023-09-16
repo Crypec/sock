@@ -7,6 +7,7 @@
 #![feature(test)]
 #![allow(dead_code)]
 #![allow(clippy::inline_always)]
+#![feature(maybe_uninit_uninit_array)]
 #![feature(generic_const_exprs)]
 
 // #![warn(clippy::restriction)]

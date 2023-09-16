@@ -54,7 +54,7 @@ impl Solver {
         Self {
             board,
 
-            hidden_pairs_cache: todo!(),
+            hidden_pairs_cache: SubSetCache::from_fn(|_| Vec::with_capacity(MAX_NUMBER_COUNT)),
 
             hidden_sets_row_cache: FxHashMap::default(),
             hidden_sets_col_cache: FxHashMap::default(),
@@ -463,7 +463,7 @@ impl Solver {
     }
 
     fn clear_hidden_pairs_cache(&mut self) {
-        for (_, positions) in self.hidden_pairs_cache.entries_exact_mut(2) {
+        for (_, positions) in self.hidden_pairs_cache.entries_mut() {
             positions.clear();
         }
     }

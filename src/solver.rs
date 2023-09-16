@@ -27,10 +27,9 @@ type Histogram = [u8; MAX_NUMBER_COUNT];
 pub struct Solver {
     pub board: Board,
 
-    hidden_sets_row_cache: HashSubSetCache,
-    hidden_sets_col_cache: HashSubSetCache,
-    hidden_sets_box_cache: HashSubSetCache,
-
+    // hidden_sets_row_cache: HashSubSetCache,
+    // hidden_sets_col_cache: HashSubSetCache,
+    // hidden_sets_box_cache: HashSubSetCache,
     hidden_pairs_cache: HiddenPairsCache,
 
     constraints: Rc<Vec<Constraint>>,
@@ -51,14 +50,16 @@ impl Solver {
     #[must_use]
     pub fn new(board: Board) -> Self {
         let cell_count = board.cell_count();
+        println!("size of pairs cache: {}", std::mem::size_of::<BoardPosition>());
+        panic!();
         Self {
             board,
 
             hidden_pairs_cache: SubSetCache::from_fn(|_| Vec::with_capacity(MAX_NUMBER_COUNT)),
 
-            hidden_sets_row_cache: FxHashMap::default(),
-            hidden_sets_col_cache: FxHashMap::default(),
-            hidden_sets_box_cache: FxHashMap::default(),
+            // hidden_sets_row_cache: FxHashMap::default(),
+            // hidden_sets_col_cache: FxHashMap::default(),
+            // hidden_sets_box_cache: FxHashMap::default(),
 
             // NOTE(Simon): Not sure if this is correct but at the moment we preallocate space for one constraint per cell
             constraints: Rc::new(Vec::with_capacity(cell_count)),
@@ -145,6 +146,7 @@ impl Solver {
 
         if let Some(position) = self.mcv_candidate.1 {
             self.invalidate_mcv_candidate();
+
             let cell = self.board[position];
             if let Cell::Marked(marks) = cell {
                 for pm in marks {
@@ -495,9 +497,11 @@ impl Solver {
                     .into_iter()
                     .map(|number| (number as usize) - 1)
                     .fold(true, |acc, num_index| acc & (histogram[num_index] == 2));
+
                 if occures_exactly_2_times {
                     self.board[occurrences[0]] = Cell::Marked(marks);
                     self.board[occurrences[1]] = Cell::Marked(marks);
+
                     changed = true;
 
                     let marks = {
@@ -514,11 +518,6 @@ impl Solver {
                             positions: (occurrences[0], occurrences[1]),
                         });
                 }
-
-                // self.add_constraint(Constraint::NakedPair {
-                //     marks,
-                //     positions: (occurrences[0], occurrences[1]),
-                // });
             }
         }
 

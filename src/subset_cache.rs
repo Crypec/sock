@@ -72,10 +72,10 @@ where
         }
     }
 
-    pub fn entries_exact(&self, k: usize) -> EntriesExactIter<L, U, N, T> {
+    pub fn entries_exact(&self, k: u32) -> EntriesExactIter<L, U, N, T> {
+        let all_set = Self::combination_all_set();
         EntriesExactIter {
-            k,
-            cursor: 0,
+            it: RawCombinationsIter::new(all_set, k),
             ss_cache: self,
         }
     }
@@ -97,6 +97,20 @@ where
 
     const fn combination_all_set() -> usize {
         (2_u32.pow(N as u32) - 1) as usize
+    }
+}
+
+impl<const L: usize, const U: usize, const N: usize, T> Drop for SubSetCache<L, U, N, T>
+where
+    [(); table_size(U, N)]:,
+{
+    fn drop(&mut self) {
+        for i in L..=U {
+            let all_set = Self::combination_all_set();
+            for index in RawCombinationsIter::new(all_set, i as u32) {
+                unsafe { self.table.get_unchecked_mut(index).assume_init_drop() }
+            }
+        }
     }
 }
 
@@ -160,10 +174,9 @@ where
 
         match self.it.next() {
             Some(index) => {
-                let elem = unsafe { self.ss_cache.get_unchecked_mut(index) };
+                let elem = unsafe { &mut *self.ss_cache.table.get_unchecked_mut(index).as_mut_ptr() };
                 let pm = PencilMarks::from_raw_bits(index as u16);
                 Some((pm, elem))
-                // None
             }
             None => {
                 self.k_cursor += 1;
@@ -182,8 +195,7 @@ pub struct EntriesExactIter<'s, const L: usize, const U: usize, const N: usize, 
 where
     [(); table_size(U, N)]:,
 {
-    k: usize,
-    cursor: usize,
+    it: RawCombinationsIter,
     ss_cache: &'s SubSetCache<L, U, N, T>,
 }
 
@@ -193,7 +205,9 @@ where
 {
     type Item = (PencilMarks, &'a T);
     fn next(&mut self) -> Option<Self::Item> {
-        todo!();
+        let index = self.it.next()?;
+        let elem = unsafe { &*self.ss_cache.table.get_unchecked(index).as_ptr() };
+        Some((PencilMarks::from_raw_bits(index as u16), elem))
     }
 }
 
@@ -302,5 +316,17 @@ mod test {
     fn largest_index_0_9() {
         let max_index = largest_index(0, 9);
         assert_eq!(max_index, 0);
+    }
+
+    #[test]
+    fn table_size_2_9() {
+        let table_size = table_size(2, 9);
+        assert_eq!(table_size, 385);
+    }
+
+    #[test]
+    fn table_size_0_9() {
+        let table_size = table_size(0, 9);
+        assert_eq!(table_size, 1);
     }
 }

@@ -1,7 +1,7 @@
 use crate::board::PencilMarks;
 
 #[allow(clippy::unreadable_literal)]
-const COMBINATIONS: [&[&[PencilMarks]]; 3] = [
+pub const COMBINATIONS: [&[&[PencilMarks]]; 3] = [
     &[
         &[PencilMarks::from_raw_bits(0b000000011)],
         &[PencilMarks::from_raw_bits(0b000000101)],

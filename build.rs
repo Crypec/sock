@@ -49,7 +49,7 @@ fn generate_combinations_lookup_table((lo, hi): (usize, usize)) -> std::io::Resu
     writeln!(f, "use crate::board::PencilMarks; \n")?;
 
     writeln!(f, "#[allow(clippy::unreadable_literal)]")?;
-    write!(f, "const COMBINATIONS: [&[&[PencilMarks]]; 3] = [")?;
+    write!(f, "pub const COMBINATIONS: [&[&[PencilMarks]]; 3] = [")?;
     for lut in luts {
         writeln!(f, "&[")?;
         for bin in lut {

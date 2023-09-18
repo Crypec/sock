@@ -1,6 +1,10 @@
 use std::mem::MaybeUninit;
+use std::ops::Deref;
 
-use crate::board::{PencilMarks, RawCombinationsIter};
+use crate::{
+    board::{PencilMarks, RawCombinationsIter},
+    generated_lut::COMBINATIONS,
+};
 
 // L: Lower bound for subsets length
 // U: Upper bound for subsets length
@@ -63,14 +67,38 @@ where
         todo!()
     }
 
-    pub fn entries_mut<'s>(&'s mut self) -> EntriesMutIter<'s, L, U, N, T> {
-        let all_set = Self::combination_all_set();
-        EntriesMutIter {
-            k_cursor: L as u32,
-            it: RawCombinationsIter::new(all_set, L as u32),
+    pub fn entries_mut<'s>(&'s mut self) -> EntriesMutLUTIter<'s, L, U, N, T> {
+        // if 2 <= L && 4 <= U {}
+        assert_eq!(L, U, "subset ranges are currently not supported");
+        // let all_set = Self::combination_all_set();
+        EntriesMutLUTIter {
+            it: COMBINATIONS[L - 2].into_iter(),
             ss_cache: self,
         }
     }
+
+    // pub const fn entries_mut<Iter>(&mut self) -> EntriesMutIter<'_, L, U, N, T, E, Iter>
+    // where
+    //     Iter: Iterator<Item = impl Deref<Target = usize>,
+    // {
+    //     use crate::generated_lut::*;
+
+    //     let k_cursor = L as u32;
+    //     if 2 <= N && N <= 4 {
+    //         EntriesMutIter {
+    //             k_cursor,
+    //             it: COMBINATIONS[L].into_iter(),
+    //             ss_cache: self,
+    //         }
+    //     } else {
+    //         let all_set = Self::combination_all_set();
+    //         EntriesMutIter {
+    //             k_cursor: L as u32,
+    //             it: RawCombinationsIter::new(all_set, L as u32),
+    //             ss_cache: self,
+    //         }
+    //     }
+    // }
 
     pub fn entries_exact(&self, k: u32) -> EntriesExactIter<L, U, N, T> {
         let all_set = Self::combination_all_set();
@@ -148,47 +176,107 @@ pub const fn table_size(upper: usize, n: usize) -> usize {
     largest_index(upper, n) + 1
 }
 
-pub struct EntriesIter;
-
-#[derive(Debug)]
-pub struct EntriesMutIter<'s, const L: usize, const U: usize, const N: usize, T>
+pub struct EntriesMutLUTIter<'s, const L: usize, const U: usize, const N: usize, T>
 where
     [(); table_size(U, N)]:,
 {
-    k_cursor: u32,
-    it: RawCombinationsIter,
+    it: std::slice::Iter<'s, usize>,
     ss_cache: &'s mut SubSetCache<L, U, N, T>,
 }
 
-impl<'s, const L: usize, const U: usize, const N: usize, T> Iterator for EntriesMutIter<'s, L, U, N, T>
+impl<'s, const L: usize, const U: usize, const N: usize, T> Iterator for EntriesMutLUTIter<'s, L, U, N, T>
 where
     [(); table_size(U, N)]:,
-    T: 's,
 {
     type Item = (PencilMarks, &'s mut T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.k_cursor as usize > U {
-            return None;
-        }
+        let index = *self.it.next()?;
 
-        match self.it.next() {
-            Some(index) => {
-                let elem = unsafe { &mut *self.ss_cache.table.get_unchecked_mut(index).as_mut_ptr() };
-                let pm = PencilMarks::from_raw_bits(index as u16);
-                Some((pm, elem))
-            }
-            None => {
-                self.k_cursor += 1;
+        let elem = unsafe { &mut *self.ss_cache.table.get_unchecked_mut(index).as_mut_ptr() };
 
-                let bits = self.it.bits();
-
-                self.it = RawCombinationsIter::new(bits, self.k_cursor);
-                self.next()
-            }
-        }
+        // let elem = unsafe { &mut *self.ss_cache.table[index].as_mut_ptr() };
+        let pm = PencilMarks::from_raw_bits(index as u16);
+        Some((pm, elem))
     }
 }
+
+pub struct EntriesIter;
+
+#[derive(Debug)]
+pub struct EntriesMutIter<'s, const L: usize, const U: usize, const N: usize, T, E, Iter: Iterator<Item = E>>
+where
+    E: Deref<Target = usize>,
+    [(); table_size(U, N)]:,
+{
+    k_cursor: u32,
+    it: Iter,
+    ss_cache: &'s mut SubSetCache<L, U, N, T>,
+}
+
+// impl<'s, const L: usize, const U: usize, const N: usize, T, E, Iter> Iterator
+//     for EntriesMutIter<'s, L, U, N, T, E, Iter>
+// where
+//     E: Deref<Target = usize>,
+//     Iter: Iterator<Item = E>,
+//     [(); table_size(U, N)]:,
+//     T: 's,
+// {
+//     type Item = (PencilMarks, &'s mut T);
+
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.k_cursor as usize > U {
+//             return None;
+//         }
+
+//         match self.it.next() {
+//             Some(index) => {
+//                 let elem = unsafe { &mut *self.ss_cache.table.get_unchecked_mut(index).as_mut_ptr() };
+//                 let pm = PencilMarks::from_raw_bits(index as u16);
+//                 Some((pm, elem))
+//             }
+//             None => {
+//                 self.k_cursor += 1;
+
+//                 let all_set = self.it.bits();
+
+//                 self.it = RawCombinationsIter::new(all_set, self.k_cursor);
+//                 self.next()
+//             }
+//         }
+//     }
+// }
+
+// impl<'s, const L: usize, const U: usize, const N: usize, T> Iterator
+//     for EntriesMutIter<'s, L, U, N, T, std::slice::Iter<'_, usize>>
+// where
+//     [(); table_size(U, N)]:,
+//     T: 's,
+// {
+//     type Item = (PencilMarks, &'s mut T);
+
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.k_cursor as usize > U {
+//             return None;
+//         }
+
+//         match self.it.next() {
+//             Some(index) => {
+//                 let elem = unsafe { &mut *self.ss_cache.table.get_unchecked_mut(index).as_mut_ptr() };
+//                 let pm = PencilMarks::from_raw_bits(index as u16);
+//                 Some((pm, elem))
+//             }
+//             None => {
+//                 self.k_cursor += 1;
+
+//                 let all_set = self.it.bits();
+
+//                 self.it = RawCombinationsIter::new(all_set, self.k_cursor);
+//                 self.next()
+//             }
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone)]
 pub struct EntriesExactIter<'s, const L: usize, const U: usize, const N: usize, T>

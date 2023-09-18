@@ -31,36 +31,42 @@ fn generate_combinations_lookup_table((lo, hi): (usize, usize)) -> std::io::Resu
     let mut luts = vec![];
     for k in 2..=4 {
         let mut bins = vec![];
-        for i in lo..=hi {
-            let it = CombinationsIter {
-                k,
-                bits: i,
-                current: (1 << k) - 1,
-            };
-            let combinations: Vec<usize> = it.into_iter().collect();
-            if combinations.is_empty() {
-                continue;
-            }
-            bins.push(combinations);
-        }
+
+        let all_set = 2_usize.pow(9) - 1;
+
+        let it = CombinationsIter {
+            k,
+            bits: all_set,
+            current: (1 << k) - 1,
+        };
+
+        let combinations: Vec<usize> = it.into_iter().collect();
+        bins.push(combinations);
+
+        // for i in lo..=hi {
+        //     // if combinations.is_empty() {
+        //     //     continue;
+        //     // }
+        // }
         luts.push(bins);
     }
     let mut f = std::fs::File::create("src/generated_lut.rs")?;
     writeln!(f, "use crate::board::PencilMarks; \n")?;
 
     writeln!(f, "#[allow(clippy::unreadable_literal)]")?;
-    write!(f, "pub const COMBINATIONS: [&[&[PencilMarks]]; 3] = [")?;
+    write!(f, "pub const COMBINATIONS: [&[usize]; 3] = [")?;
     for lut in luts {
-        writeln!(f, "&[")?;
+        // writeln!(f, "&[")?;
         for bin in lut {
             let nums = bin
                 .iter()
-                .map(|n| format!("PencilMarks::from_raw_bits(0b{n:09b})"))
+                // .map(|n| format!("PencilMarks::from_raw_bits(0b{n:09b})"))
+                .map(|n| format!("0b{n:09b}"))
                 .collect::<Vec<String>>()
                 .join(", ");
             write!(f, "&[{nums}], ")?;
         }
-        writeln!(f, "], ")?;
+        // writeln!(f, "], ")?;
     }
     write!(f, "];")?;
 

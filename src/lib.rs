@@ -12,7 +12,7 @@
 #![feature(generic_const_exprs)]
 
 pub mod board;
-mod generated_lut;
+pub mod generated_lut;
 pub mod solver;
 pub mod subset_cache;
 mod visualize;

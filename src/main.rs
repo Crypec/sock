@@ -9,6 +9,7 @@
 #![allow(clippy::inline_always)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
 
 // #![warn(clippy::restriction)]
 
@@ -18,13 +19,10 @@ use crate::solver::Solver;
 #[cfg(not(feature = "no-jobs"))]
 use rayon::prelude::*;
 
-use rustc_hash::{FxHashSet, FxHasher};
-
 use std::assert_matches::assert_matches;
-use std::collections::HashSet;
-use std::hash::BuildHasherDefault;
 
 mod board;
+mod generated_lut;
 mod solver;
 mod subset_cache;
 

@@ -7,8 +7,6 @@ use cli_table::{Style, Table};
 use std::fmt;
 use std::ops::{Index, IndexMut};
 
-// use std::ops::Index;
-
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Board(pub [[Cell; 9]; 9]);
 
@@ -293,7 +291,7 @@ impl PencilMarks {
 
     #[inline(always)]
     #[must_use]
-    pub const fn combinations(self, k: u8) -> PencilMarkCominationsIter {
+    pub fn combinations(self, k: u8) -> impl Iterator<Item = PencilMarks> {
         PencilMarkCominationsIter {
             it: RawCombinationsIter::new(self.0 .0 as usize, k as u32),
         }
@@ -536,6 +534,19 @@ impl Iterator for BoxIter {
         let col_index = ((self.col_index as isize) + col_offset) as usize;
 
         Some(BigBoardPosition::new(row_index, col_index))
+    }
+}
+
+pub struct PencilMarkLUTCombinationsIter<'s> {
+    it: std::slice::Iter<'s, usize>,
+}
+
+impl<'s> Iterator for PencilMarkLUTCombinationsIter<'s> {
+    type Item = PencilMarks;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = *self.it.next()?;
+        Some(PencilMarks::from_raw_bits(index as u16))
     }
 }
 

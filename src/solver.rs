@@ -27,14 +27,12 @@ type Histogram = [u8; MAX_NUMBER_COUNT];
 pub struct Solver {
     pub board: Board,
 
-    // hidden_sets_row_cache: HashSubSetCache,
-    // hidden_sets_col_cache: HashSubSetCache,
-    // hidden_sets_box_cache: HashSubSetCache,
     hidden_pairs_cache: HiddenPairsCache,
 
     constraints: Rc<Vec<Constraint>>,
 
     made_progress: bool,
+    tier: Tier,
 
     // most constraining value
     mcv_candidate: (u8, Option<BoardPosition>),
@@ -50,16 +48,10 @@ impl Solver {
     #[must_use]
     pub fn new(board: Board) -> Self {
         let cell_count = board.cell_count();
-        println!("size of pairs cache: {}", std::mem::size_of::<BoardPosition>());
-        panic!();
         Self {
             board,
 
             hidden_pairs_cache: SubSetCache::from_fn(|_| Vec::with_capacity(MAX_NUMBER_COUNT)),
-
-            // hidden_sets_row_cache: FxHashMap::default(),
-            // hidden_sets_col_cache: FxHashMap::default(),
-            // hidden_sets_box_cache: FxHashMap::default(),
 
             // NOTE(Simon): Not sure if this is correct but at the moment we preallocate space for one constraint per cell
             constraints: Rc::new(Vec::with_capacity(cell_count)),
@@ -67,6 +59,7 @@ impl Solver {
             mcv_candidate: (Self::MCV_CANDIDATE_MAX_LEN, None),
 
             made_progress: false,
+            tier: Tier::Tier1 { made_progress: false },
 
             #[cfg(feature = "tracing")]
             trace: Trace {
@@ -106,16 +99,27 @@ impl Solver {
     }
 
     fn solve_internal(&mut self, depth: usize) -> Result<Board, BoardNotSolvableError> {
-        while !self.is_solved() && self.made_progress {
-            self.made_progress = false;
-            self.insert_naked_singles()?;
-            self.insert_hidden_singles()?;
-            self.insert_hidden_pairs();
+        loop {
+            match self.tier {
+                Tier::Tier1 { made_progress: true } => {
+                    self.tier = Tier::Tier1 { made_progress: false };
+
+                    self.insert_naked_singles()?;
+                    self.insert_hidden_singles()?;
+                }
+                Tier::Tier1 { made_progress: false } => {
+                    self.insert_hidden_pairs();
+                }
+                Tier::Tier2 { made_progress: true } => self.tier = Tier::Tier1 { made_progress: true },
+                Tier::Tier2 { made_progress: false } => {}
+            };
+
+            if self.is_solved() {
+                return Ok(self.board);
+            }
+
+            return self.solve_dfs(depth);
         }
-        if self.is_solved() {
-            return Ok(self.board);
-        }
-        self.solve_dfs(depth)
     }
 
     fn is_solved(&self) -> bool {
@@ -189,7 +193,6 @@ impl Solver {
         I: IntoIterator<Item = (SudokuNum, BoardPosition)>,
     {
         let old_board = self.board;
-
         let old_constraints = (*self.constraints).clone();
 
         for (number, position) in to_insert_iter {
@@ -275,7 +278,6 @@ impl Solver {
 
         let old_entry = unsafe {
             // for some reason llvm is not smart enough to remove this bounds check
-            // hidden_singles_entry_list[num_index]
             hidden_singles_entry_list.get_unchecked(num_index)
         };
         let new_entry = match old_entry {
@@ -284,7 +286,6 @@ impl Solver {
         };
 
         unsafe {
-            // hidden_singles_entry_list[num_index] = new_entry;
             *hidden_singles_entry_list.get_unchecked_mut(num_index) = new_entry;
         }
     }
@@ -388,7 +389,9 @@ impl Solver {
 
             let constrained_board = self.get_constrained_board();
 
-            debug_assert_matches!(cell, Cell::Constrained(marks) if marks.contains(number), "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?} => {:?}{:?}\n{:?}", number, (position.row_index, position.col_index), _origin, cons, constrained_board);
+            debug_assert_matches!(cell, Cell::Constrained(marks) if marks.contains(number),
+                "the placement of a number has to be at least partially valid :: tried to insert {} into :: {:?} => {:?}{:?}\n{:?}",
+            number, (position.row_index, position.col_index), _origin, cons, constrained_board);
         }
 
         #[cfg(feature = "tracing")]
@@ -406,6 +409,7 @@ impl Solver {
         // actually insert the number into the board
         self.board[position] = Cell::Number(number);
         self.made_progress = true;
+        self.tier = Tier::Tier1 { made_progress: true };
 
         self.remove_cons_at_pos(number, position);
 
@@ -489,9 +493,9 @@ impl Solver {
     }
 
     fn insert_constraints_from_hidden_pairs(&mut self, histogram: &Histogram) -> bool {
-        let mut changed = false;
+        let mut made_progress = false;
 
-        for (marks, occurrences) in self.hidden_pairs_cache.entries_exact(2) {
+        for (marks, occurrences) in self.hidden_pairs_cache.entries_mut() {
             if occurrences.len() == 2 {
                 let occures_exactly_2_times = marks
                     .into_iter()
@@ -502,7 +506,7 @@ impl Solver {
                     self.board[occurrences[0]] = Cell::Marked(marks);
                     self.board[occurrences[1]] = Cell::Marked(marks);
 
-                    changed = true;
+                    made_progress = true;
 
                     let marks = {
                         let mut it = marks.into_iter();
@@ -521,7 +525,7 @@ impl Solver {
             }
         }
 
-        changed
+        made_progress
     }
 
     fn add_constraint(&mut self, constraint: Constraint) {
@@ -549,13 +553,14 @@ impl Solver {
     }
 
     fn insert_hidden_pairs(&mut self) {
+        let mut made_progress = false;
         for i in 0..9 {
             {
                 self.clear_hidden_pairs_cache();
                 self.insert_pair_combination_positions_into_cache(RowIter::new(i));
                 let histogram = self.compute_constraint_histogram_iter(RowIter::new(i));
 
-                let _changed = self.insert_constraints_from_hidden_pairs(&histogram);
+                made_progress |= self.insert_constraints_from_hidden_pairs(&histogram);
             }
 
             {
@@ -563,7 +568,7 @@ impl Solver {
                 self.insert_pair_combination_positions_into_cache(ColIter::new(i));
                 let histogram = self.compute_constraint_histogram_iter(ColIter::new(i));
 
-                let _changed = self.insert_constraints_from_hidden_pairs(&histogram);
+                made_progress |= self.insert_constraints_from_hidden_pairs(&histogram);
             }
 
             {
@@ -571,10 +576,17 @@ impl Solver {
                 self.insert_pair_combination_positions_into_cache(BoxIter::new(i));
                 let histogram = self.compute_constraint_histogram_iter(BoxIter::new(i));
 
-                let _changed = self.insert_constraints_from_hidden_pairs(&histogram);
+                made_progress |= self.insert_constraints_from_hidden_pairs(&histogram);
             }
         }
+        self.tier = Tier::Tier2 { made_progress };
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Tier {
+    Tier1 { made_progress: bool },
+    Tier2 { made_progress: bool },
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

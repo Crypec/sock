@@ -1,7 +1,5 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use rustc_hash::FxHashMap;
-use std::rc::Rc;
 use strum::EnumCount;
 
 use crate::board::{BigBoardPosition, Board, BoardIter, BoxIter, Cell, ColIter, PencilMarks, RowIter, SudokuNum};
@@ -18,27 +16,23 @@ pub const MAX_NUMBER_COUNT: usize = SudokuNum::COUNT;
 pub struct BoardNotSolvableError;
 
 type HiddenSinglesEntryList = [HiddenSingleEntry; MAX_NUMBER_COUNT];
-// type MissingNumbersList = [ConstraintList; MAX_NUMBER_COUNT];
-type HashSubSetCache = FxHashMap<PencilMarks, Vec<BoardPosition>>;
-
 type HiddenPairsCache = SubSetCache<2, 2, MAX_NUMBER_COUNT, Vec<BoardPosition>>;
 type Histogram = [u8; MAX_NUMBER_COUNT];
 
 pub struct Solver {
     pub board: Board,
 
-    hidden_pairs_cache: HiddenPairsCache,
+    hidden_pairs_cache: Box<HiddenPairsCache>,
 
-    constraints: Rc<Vec<Constraint>>,
+    constraint_stack: Vec<Vec<Constraint>>,
 
-    made_progress: bool,
     tier: Tier,
 
     // most constraining value
     mcv_candidate: (u8, Option<BoardPosition>),
 
     #[cfg(feature = "tracing")]
-    pub trace: Trace,
+    pub trace: tracing::Trace,
 }
 
 impl Solver {
@@ -51,75 +45,85 @@ impl Solver {
         Self {
             board,
 
-            hidden_pairs_cache: SubSetCache::from_fn(|_| Vec::with_capacity(MAX_NUMBER_COUNT)),
+            hidden_pairs_cache: Box::new(SubSetCache::from_fn(|_| Vec::with_capacity(MAX_NUMBER_COUNT))),
 
             // NOTE(Simon): Not sure if this is correct but at the moment we preallocate space for one constraint per cell
-            constraints: Rc::new(Vec::with_capacity(cell_count)),
+            constraint_stack: vec![Vec::with_capacity(cell_count)],
 
             mcv_candidate: (Self::MCV_CANDIDATE_MAX_LEN, None),
 
-            made_progress: false,
             tier: Tier::Tier1 { made_progress: false },
 
             #[cfg(feature = "tracing")]
-            trace: Trace {
-                root: None,
+            trace: tracing::Trace {
+                root: board,
                 events: vec![],
             },
         }
     }
 
     pub fn solve(&mut self) -> Result<Board, BoardNotSolvableError> {
-        #[cfg(feature = "tracing")]
-        {
-            let mut constrained_board = self.get_constrained_board();
-
-            // HACK(Simon): Because we start with a full `ConstraintList` we need to clear all constraints
-            for pos in BoardIter::new() {
-                let cell = &mut constrained_board.0[pos.row_index][pos.col_index];
-                if let CellWithConstraints::Constrained(cons) = cell {
-                    *cons = PencilMarks::empty();
-                }
-            }
-            self.trace.root = Some(constrained_board);
-        }
-
         self.update_initial_constraints();
         self.partially_propagate_constraints();
 
         #[cfg(feature = "tracing")]
-        {
-            let constrained_board = self.get_constrained_board();
-            self.trace.events.push(Event::PartiallyPropagate {
-                board: constrained_board,
-            });
-        }
+        self.trace
+            .events
+            .push(tracing::Event::PartiallyPropagate { board: self.board });
 
         self.solve_internal(0)
     }
 
     fn solve_internal(&mut self, depth: usize) -> Result<Board, BoardNotSolvableError> {
         loop {
-            match self.tier {
-                Tier::Tier1 { made_progress: true } => {
+            match (self.tier, self.is_solved()) {
+                (_, true) => {
+                    return Ok(self.board);
+                }
+                (Tier::Tier1 { made_progress: true }, false) => {
                     self.tier = Tier::Tier1 { made_progress: false };
 
                     self.insert_naked_singles()?;
                     self.insert_hidden_singles()?;
                 }
-                Tier::Tier1 { made_progress: false } => {
+                (Tier::Tier1 { made_progress: false }, false) => {
                     self.insert_hidden_pairs();
                 }
-                Tier::Tier2 { made_progress: true } => self.tier = Tier::Tier1 { made_progress: true },
-                Tier::Tier2 { made_progress: false } => {}
+                (
+                    Tier::Tier2 {
+                        made_progress: true,
+                        ran_last_time: true,
+                    },
+                    false,
+                ) => {
+                    if self.solve_tier_1()? {
+                        return Ok(self.board);
+                    }
+                    break;
+                }
+                (
+                    Tier::Tier2 {
+                        made_progress: false,
+                        ran_last_time: true,
+                    },
+                    _,
+                ) => break,
             };
-
-            if self.is_solved() {
-                return Ok(self.board);
-            }
-
-            return self.solve_dfs(depth);
         }
+        return self.solve_dfs(depth);
+    }
+
+    fn solve_tier_1(&mut self) -> Result<bool, BoardNotSolvableError> {
+        let mut is_solved = self.is_solved();
+        while let Tier::Tier1 { made_progress: true } = self.tier && !is_solved {
+            self.tier = Tier::Tier1 { made_progress: false };
+
+            self.insert_naked_singles()?;
+            self.insert_hidden_singles()?;
+
+            is_solved = self.is_solved();
+        }
+        Ok(is_solved)
     }
 
     fn is_solved(&self) -> bool {
@@ -128,25 +132,31 @@ impl Solver {
 
     // If we have exhausted all our options using constraint propagation, run a depth first search
     fn solve_dfs(&mut self, depth: usize) -> Result<Board, BoardNotSolvableError> {
-        // unsafe {
-        //     let this = self as *mut Self;
-        //     for cons in &(*this).constraints {
-        //         match cons {
-        //             Constraint::NakedPair { marks, positions } => {
-        //                 let combinations = [
-        //                     [(marks.0, positions.0), (marks.1, positions.1)],
-        //                     [(marks.0, positions.1), (marks.0, positions.1)],
-        //                 ];
-        //                 for combi in combinations {
-        //                     match self.try_insert_and_solve(combi, Origin::DFSMCV, depth) {
-        //                         Ok(board) => return Ok(board),
-        //                         Err(_) => continue,
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+        if let Some(constraints) = self.constraint_stack.pop() {
+            // PERF(Simon): we could try to unify these constraints beforehand to check if they are consistent.
+            for cons in &constraints {
+                match cons {
+                    Constraint::NakedPair { marks, positions } => {
+                        let combinations = [
+                            [(marks.0, positions.0), (marks.1, positions.1)],
+                            [(marks.0, positions.1), (marks.0, positions.1)],
+                        ];
+
+                        for combi in combinations {
+                            match self.try_insert_and_solve(combi, Origin::DFSConstraints, depth) {
+                                Ok(board) => return Ok(board),
+                                Err(_) => continue,
+                            }
+                        }
+                    }
+                }
+            }
+
+            // if constraints were not empty and we tried all of them without finding a solution we know the current board is not solvable
+            if !constraints.is_empty() {
+                return Err(BoardNotSolvableError);
+            }
+        }
 
         if let Some(position) = self.mcv_candidate.1 {
             self.invalidate_mcv_candidate();
@@ -154,7 +164,7 @@ impl Solver {
             let cell = self.board[position];
             if let Cell::Marked(marks) = cell {
                 for pm in marks {
-                    match self.try_insert_and_solve([(pm, position)], Origin::DFSTryAll, depth) {
+                    match self.try_insert_and_solve([(pm, position)], Origin::DFSMCV, depth) {
                         Ok(board) => return Ok(board),
                         Err(_) => continue,
                     };
@@ -192,12 +202,14 @@ impl Solver {
     where
         I: IntoIterator<Item = (SudokuNum, BoardPosition)>,
     {
+        let cell_count = self.board.cell_count();
+        self.constraint_stack.push(Vec::with_capacity(cell_count));
+
         let old_board = self.board;
-        let old_constraints = (*self.constraints).clone();
 
         for (number, position) in to_insert_iter {
             if self.insert_and_forward_propagate(number, position, origin).is_err() {
-                self.restore_state(&old_board, old_constraints);
+                self.restore_state(&old_board);
                 return Err(BoardNotSolvableError);
             }
         }
@@ -205,27 +217,24 @@ impl Solver {
         match self.solve_internal(depth + 1) {
             Ok(board) => {
                 #[cfg(feature = "tracing")]
-                {
-                    let solved_board = self.get_constrained_board();
-                    self.trace.events.push(Event::Solved { board: solved_board });
-                }
+                self.trace.events.push(tracing::Event::Solved { board: self.board });
 
                 Ok(board)
             }
             Err(BoardNotSolvableError) => {
-                self.restore_state(&old_board, old_constraints);
+                self.restore_state(&old_board);
                 Err(BoardNotSolvableError)
             }
         }
     }
 
     #[inline(always)]
-    fn restore_state(&mut self, old_board: &Board, constraints: Vec<Constraint>) {
+    fn restore_state(&mut self, old_board: &Board) {
         #[cfg(feature = "tracing")]
-        self.trace.events.push(Event::Restore);
+        self.trace.events.push(tracing::Event::Restore);
 
-        self.constraints = Rc::new(constraints);
         self.board = *old_board;
+        self.constraint_stack.pop();
     }
 
     fn insert_hidden_singles(&mut self) -> Result<(), BoardNotSolvableError> {
@@ -328,6 +337,7 @@ impl Solver {
         unsafe { *BOX_POSITION_LUT.get_unchecked(row_index).get_unchecked(col_index) }
     }
 
+    #[inline(always)]
     fn remove_cons_at_pos(&mut self, to_remove: SudokuNum, position: BoardPosition) {
         let row_index = position.row_index;
         let col_index = position.col_index;
@@ -338,6 +348,11 @@ impl Solver {
         self.remove_cons_at_pos_iter(to_remove, BoxIter::new(box_index));
     }
 
+    // PERF(Simon): This function takes up a lot of time in the benchmarks (currently ~ 17% of the total run time)
+    // PERF(Simon): I think this could relatively easy be replaced with an unrolled SIMD version
+    // PERF(Simon): For this we only wood need to check if the whole row does not contain a `Cell::Number` and if not
+    // PERF(Simon): use SIMD to create a bitmask for to remove the number from all cells.
+    #[inline(always)]
     fn remove_cons_at_pos_iter<I>(&mut self, to_remove: SudokuNum, iter: I)
     where
         I: Iterator<Item = BoardPosition>,
@@ -396,9 +411,9 @@ impl Solver {
 
         #[cfg(feature = "tracing")]
         {
-            let board = self.get_constrained_board();
+            let board = self.board;
 
-            self.trace.events.push(Event::Insert {
+            self.trace.events.push(tracing::Event::Insert {
                 origin: _origin,
                 position,
                 number,
@@ -408,7 +423,6 @@ impl Solver {
 
         // actually insert the number into the board
         self.board[position] = Cell::Number(number);
-        self.made_progress = true;
         self.tier = Tier::Tier1 { made_progress: true };
 
         self.remove_cons_at_pos(number, position);
@@ -495,7 +509,10 @@ impl Solver {
     fn insert_constraints_from_hidden_pairs(&mut self, histogram: &Histogram) -> bool {
         let mut made_progress = false;
 
-        for (marks, occurrences) in self.hidden_pairs_cache.entries_mut() {
+        let hidden_pairs = &mut self.hidden_pairs_cache;
+        let constraints = self.constraint_stack.last_mut().expect("constraint stack is empty");
+
+        for (marks, occurrences) in hidden_pairs.entries_mut() {
             if occurrences.len() == 2 {
                 let occures_exactly_2_times = marks
                     .into_iter()
@@ -515,24 +532,15 @@ impl Solver {
                         (m0, m1)
                     };
 
-                    Rc::get_mut(&mut self.constraints)
-                        .expect("failed to get constraint list")
-                        .push(Constraint::NakedPair {
-                            marks,
-                            positions: (occurrences[0], occurrences[1]),
-                        });
+                    constraints.push(Constraint::NakedPair {
+                        marks,
+                        positions: (occurrences[0], occurrences[1]),
+                    });
                 }
             }
         }
 
         made_progress
-    }
-
-    fn add_constraint(&mut self, constraint: Constraint) {
-        // PERFORMANCE(Simon): could probably replaced with get_unchecked
-        Rc::get_mut(&mut self.constraints)
-            .expect("failed to get constraint list")
-            .push(constraint);
     }
 
     fn compute_constraint_histogram_iter<I>(&self, iter: I) -> Histogram
@@ -579,14 +587,17 @@ impl Solver {
                 made_progress |= self.insert_constraints_from_hidden_pairs(&histogram);
             }
         }
-        self.tier = Tier::Tier2 { made_progress };
+        self.tier = Tier::Tier2 {
+            made_progress,
+            ran_last_time: true,
+        };
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Tier {
     Tier1 { made_progress: bool },
-    Tier2 { made_progress: bool },
+    Tier2 { made_progress: bool, ran_last_time: bool },
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -643,6 +654,7 @@ pub mod tracing {
         HiddenSingle,
         DFSTryAll,
         DFSMCV,
+        DFSConstraints,
     }
 }
 

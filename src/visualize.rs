@@ -57,7 +57,7 @@ fn emit_edges(events: &[Event]) -> String {
                 number,
                 board: _,
             } => {
-                if *origin == Origin::DFSMCV || *origin == Origin::DFSTryAll {
+                if matches!(*origin, Origin::DFSTryAll | Origin::DFSConstraints | Origin::DFSMCV) {
                     stack.push(current_index);
                 }
 
@@ -71,7 +71,7 @@ fn emit_edges(events: &[Event]) -> String {
                 edges.push(edge);
             }
             Event::Restore => {
-                prev_index = stack.pop().unwrap();
+                prev_index = stack.pop().expect("tried to restore from empty stack");
             }
             Event::PartiallyPropagate { board: _ } => {
                 let edge = r#"root -> b_0 [label = "partially propagate constraints"]"#.to_string();
@@ -91,6 +91,7 @@ fn emit_insert_label(origin: Origin, index: BigBoardPosition, number: SudokuNum)
         Origin::ForwardPropagate => "forward propagation",
         Origin::DFSMCV => "depth first search (MCV)",
         Origin::DFSTryAll => "depth first search (Search)",
+        Origin::DFSConstraints => "depth first search (Constraint)",
     };
     let index = format!("{:?}", (index.row_index, index.col_index));
     format!(r#"[ label ="{origin_text} :: {number} : {index}" ]"#)

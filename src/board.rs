@@ -117,32 +117,6 @@ impl IndexMut<BigBoardPosition> for Board {
     }
 }
 
-// pub struct BoardWithConstraints(pub [[CellWithConstraints; 9]; 9]);
-
-// impl BoardWithConstraints {
-//     #[inline(always)]
-//     pub const fn new() -> Self {
-//         Self([[CellWithConstraints::Free; 9]; 9])
-//     }
-// }
-
-// #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-// pub enum CellWithConstraints {
-//     Number(SudokuNum),
-//     Constrained(ConstraintList),
-//     Free,
-// }
-
-// impl fmt::Display for CellWithConstraints {
-//     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-//         match self {
-//             Self::Number(n) => write!(f, "{n}"),
-//             Self::Constrained(cons) => write!(f, "{cons:?}"),
-//             Self::Free => write!(f, "."),
-//         }
-//     }
-// }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::EnumCount)]
 pub enum SudokuNum {
     One = 1,
@@ -250,6 +224,8 @@ impl PencilMarks {
         if self.len() != 1 {
             return None;
         }
+
+        // PERF(Simon): measured marginally faster when using unwrap_unchecked
         let num = ((self.0.first_index() + 1) as u8)
             .try_into()
             .expect("failed to convert to sudoku number");
@@ -310,14 +286,6 @@ impl fmt::Debug for Board {
         write!(f, "\n{table}\n")
     }
 }
-
-// impl fmt::Debug for BoardWithConstraints {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         let table = self.0.table().bold(true).display().unwrap();
-
-//         write!(f, "\n{table}\n")
-//     }
-// }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[rustc_layout_scalar_valid_range_end(0b0000_00001_1111_1111)]
@@ -637,16 +605,13 @@ impl Iterator for PencilMarksIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.bits.0 == 0 {
-            None
-        } else {
-            let lsb = self.bits.0 & self.bits.0.wrapping_neg();
-            unsafe {
-                self.bits.0 &= self.bits.0 - 1;
-
-                // Some(std::mem::transmute((lsb.trailing_zeros() + 1) as u8))
-            }
-            ((lsb.trailing_zeros() + 1) as usize).try_into().ok()
+            return None;
         }
+        let lsb = self.bits.0 & self.bits.0.wrapping_neg();
+        unsafe {
+            self.bits.0 &= self.bits.0 - 1;
+        }
+        ((lsb.trailing_zeros() + 1) as usize).try_into().ok()
     }
 }
 

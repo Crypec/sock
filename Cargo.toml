@@ -13,7 +13,7 @@ codegen-units = 1
 lto = "fat"
 
 [features]
-default = [] 
+default = ["visualize", "dhat-heap"] 
 no-jobs = []
 tracing = []
 visualize = ["tracing"]

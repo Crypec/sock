@@ -325,8 +325,8 @@ pub struct PhfConstants {
 }
 
 pub const fn calculate_magic_and_shift(max_magic: usize, max_shift: usize) -> PhfConstants {
-    let mut best_magic = 0;
-    let mut best_shift = 0;
+    let mut _best_magic = 0;
+    let mut _best_shift = 0;
 
     let mut current_magic = 0;
     while current_magic <= max_magic {
@@ -337,7 +337,7 @@ pub const fn calculate_magic_and_shift(max_magic: usize, max_shift: usize) -> Ph
 
         current_magic += 1;
     }
-    let mut test = [false; 200];
+    let mut _test = [false; 200];
 
     PhfConstants { magic: 0, shift: 0 }
 }

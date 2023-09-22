@@ -10,6 +10,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
+#![feature(let_chains)]
 
 // #![warn(clippy::restriction)]
 
